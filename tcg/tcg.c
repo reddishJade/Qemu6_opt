@@ -1743,6 +1743,11 @@ bool tcg_op_supported(TCGOpcode op)
     case INDEX_op_goto_ptr:
         return TCG_TARGET_HAS_goto_ptr;
 
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+    case INDEX_op_ret:
+        return TCG_TARGET_HAS_ret;
+#endif
+
     case INDEX_op_mov_i32:
     case INDEX_op_setcond_i32:
     case INDEX_op_brcond_i32:

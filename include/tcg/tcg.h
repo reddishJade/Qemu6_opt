@@ -622,6 +622,13 @@ struct TCGContext {
     uintptr_t *tb_jmp_insn_offset; /* tb->jmp_target_arg if direct_jump */
     uintptr_t *tb_jmp_target_addr; /* tb->jmp_target_arg if !direct_jump */
 
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+    /* Pre-translate based return path prediction patch slot.  */
+    uintptr_t *pbrp_patch_offset;
+    /* Target PC of the TB that follows after chaining.  */
+    target_ulong tb_next_pc;
+#endif
+
     TCGRegSet reserved_regs;
     uint32_t tb_cflags; /* cflags of the current TB */
     intptr_t current_frame_offset;

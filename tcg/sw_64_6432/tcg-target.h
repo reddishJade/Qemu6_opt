@@ -47,6 +47,9 @@ typedef enum {
 #define TCG_TARGET_CALL_STACK_OFFSET    0
 #define TCG_TARGET_HAS_direct_jump      1
 #define TCG_TARGET_HAS_goto_ptr         1
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#define TCG_TARGET_HAS_ret 1
+#endif
 #define TCG_TARGET_HAS_qemu_st8_i32     0
 #define TCG_TARGET_HAS_div_i32          1
 #define TCG_TARGET_HAS_movcond_i32      1
@@ -127,6 +130,9 @@ typedef enum {
 #define TCG_TARGET_HAS_MEMORY_BSWAP     0
 /* optional instructions */
 void tb_target_set_jmp_target(uintptr_t, uintptr_t, uintptr_t, uintptr_t);
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+void patch_jrra(TranslationBlock *tb, TranslationBlock *next_tb);
+#endif
 #ifdef CONFIG_SOFTMMU
 #define TCG_TARGET_NEED_LDST_LABELS
 #endif

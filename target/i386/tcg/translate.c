@@ -2398,6 +2398,15 @@ static inline void gen_goto_tb(DisasContext *s, int tb_num, target_ulong eip)
     }
 }
 
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+static inline void gen_ret(DisasContext *s, TCGv dest) {
+  gen_update_cc_op(s);
+  tcg_gen_ret(dest);
+  tcg_gen_lookup_and_goto_ptr();
+  s->base.is_jmp = DISAS_NORETURN;
+}
+#endif
+
 static inline void gen_jcc(DisasContext *s, int b,
                            target_ulong val, target_ulong next_eip)
 {
@@ -6209,6 +6218,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_gen_ext16u_tl(s->T0, s->T0);
             }
             next_eip = s->pc - s->cs_base;
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+            s->base.tb->next_pc = next_eip;
+#endif
             tcg_gen_movi_tl(s->T1, next_eip);
             gen_push_v(s, s->T1);
             gen_op_jmp_v(s->T0);
@@ -7697,10 +7709,16 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         ot = gen_pop_T0(s);
         gen_pop_update(s, ot);
 #endif
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+        gen_op_jmp_v(s->T0);
+        gen_bnd_jmp(s);
+        gen_ret(s, s->T0);
+#else
         /* Note that gen_pop_T0 uses a zero-extending load.  */
         gen_op_jmp_v(s->T0);
         gen_bnd_jmp(s);
         gen_jr(s, s->T0);
+#endif
         break;
     case 0xca: /* lret im */
         val = x86_ldsw_code(env, s);
@@ -7757,6 +7775,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tval = (int16_t)insn_get(env, s, MO_16);
             }
             next_eip = s->pc - s->cs_base;
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+            s->base.tb->next_pc = next_eip;
+#endif
             tval += next_eip;
             if (dflag == MO_16) {
                 tval &= 0xffff;
@@ -8335,7 +8356,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
 
             break;
         }
-#endif //end of CONFIG_INDIRECT_JUMP_OPT_PLT
+#endif // end of CONFIG_INDIRECT_JUMP_OPT_PLT
 
 #if defined(CONFIG_NATIVE_LIBS) && defined(__sw_64__)
         // call native libs
@@ -8349,7 +8370,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         */
         if( *(uint8_t *)(s->pc + 0) == 'S' && *(uint8_t *)(s->pc + 1) == 'C') {
             FunctionMetadata *meta = find_function_metadata_by_address((uintptr_t)s->pc-1);
-#if 0 //for debug
+#if 0 // for debug
             printf("0x%lx call native function : %s\n",  s->pc-1, meta->funcname);
 #endif
             if(meta == NULL) {
@@ -8381,7 +8402,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_jr(s, s->T0);
             break;
         }
-#endif //endof CONFIG_NATIVE_LIBS
+#endif // endof CONFIG_NATIVE_LIBS
         gen_interrupt(s, EXCP03_INT3, pc_start - s->cs_base, s->pc - s->cs_base);
         break;
     }

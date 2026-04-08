@@ -1414,6 +1414,13 @@ typedef struct CPUX86State {
                         are known at translation time. */
     uint32_t hflags2; /* various other flags, see HF2_xxx constants. */
 
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+    /* Pre-translate based return path prediction patch slot.  */
+    uintptr_t *pbrp_patch_offset;
+    /* Target PC of the TB that follows after chaining.  */
+    target_ulong tb_next_pc;
+#endif
+
     /* segments */
     SegmentCache segs[6]; /* selector values */
     SegmentCache ldt;

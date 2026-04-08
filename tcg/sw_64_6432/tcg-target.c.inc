@@ -1966,6 +1966,101 @@ void tb_target_set_jmp_target(uintptr_t tc_ptr, uintptr_t jmp_rx, uintptr_t jmp_
     }
 }
 
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+/* Address-calculation helpers */
+typedef struct {
+  uintptr_t jmp_rx; /* RX address to execute from */
+  uintptr_t jmp_rw; /* RW address to write patches into */
+} patch_addresses_t;
+
+static inline patch_addresses_t get_patch_addresses(TranslationBlock *tb) {
+  uintptr_t tc_ptr = (uintptr_t)tb->tc.ptr;
+  uintptr_t jmp_rx = tc_ptr + tb->jmp_to_next_offset;
+  uintptr_t jmp_rw = jmp_rx - tcg_splitwx_diff;
+
+  return (patch_addresses_t){.jmp_rx = jmp_rx, .jmp_rw = jmp_rw};
+}
+
+/* Target-address decomposition */
+typedef struct {
+  tcg_target_long l0; /* low 16 bits */
+  tcg_target_long l1; /* middle 16 bits */
+  tcg_target_long l2; /* high 16 bits */
+} target_components_t;
+
+static inline target_components_t decompose_target_address(uintptr_t target) {
+  target_components_t comp;
+
+  comp.l0 = (int16_t)target;
+  target = (target - comp.l0) >> 16;
+  comp.l1 = (int16_t)target;
+  target = (target - comp.l1) >> 16;
+  comp.l2 = (int16_t)target;
+
+  return comp;
+}
+
+/* Instruction-pair write helper */
+static inline void write_insn_pair(uintptr_t *addr, tcg_insn_unit i1,
+                                   tcg_insn_unit i2) {
+  uint64_t pair = (uint64_t)i2 << 32 | i1;
+  qatomic_set((uint64_t *)addr, pair);
+}
+
+/* Patch-code generator */
+static size_t generate_patch_code(uintptr_t jmp_addr,
+                                  const target_components_t *comp,
+                                  size_t offset) {
+  TCGReg rs = TCG_REG_ZERO;
+  TCGReg rd = TCG_REG_TMP;
+  TCGReg rt = TCG_REG_X10;
+  uintptr_t jmp = jmp_addr;
+  tcg_insn_unit i1, i2;
+
+  /* First pair: load ESP + load high 16 bits into rd */
+  // i1 = OPC_LDL | (rt & 0x1f) << 21 | (TCG_AREG0 & 0x1f) << 16 | (offset &
+  // 0xffff); i1 = OPC_ADDL_I | (TCG_AREG0 & 0x1f) << 21 | (offset & 0x1f) << 13
+  // | (rt & 0x1f);
+  i1 = OPC_NOP;
+  i2 = OPC_LDI | (rd & 0x1f) << 21 | (rs & 0x1f) << 16 | (comp->l2 & 0xffff);
+  write_insn_pair((uintptr_t *)jmp, i1, i2);
+  jmp += 8;
+
+  /* Second pair: shift left by 32 bits + load middle 16 bits */
+  i1 = OPC_SLLL_I | (rd & 0x1f) << 21 | (32 & 0xff) << 13 | (rd & 0x1f);
+  i2 = OPC_LDIH | (rd & 0x1f) << 21 | (rd & 0x1f) << 16 | (comp->l1 & 0xffff);
+  write_insn_pair((uintptr_t *)jmp, i1, i2);
+  jmp += 8;
+
+  /* Third pair: load low 16 bits + store to stack */
+  i1 = OPC_LDI | (rd & 0x1f) << 21 | (rd & 0x1f) << 16 | (comp->l0 & 0xffff);
+  // i2 = OPC_STL | (rd & 0x1f) << 21 | (rt & 0x1f) << 16 | (0 & 0xffff);
+  i2 = OPC_STL | (rd & 0x1f) << 21 | (TCG_AREG0 & 0x1f) << 16 |
+       (offset & 0xffff);
+  write_insn_pair((uintptr_t *)jmp, i1, i2);
+  jmp += 8;
+
+  return jmp - jmp_addr; /* total bytes written */
+}
+
+/* Patch pre-translate based return path prediction (pbrp) */
+void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb) {
+  target_ulong gpc = tb->next_pc;
+  uintptr_t hpc = (uintptr_t)next_tb->tc.ptr;
+
+  patch_addresses_t addrs = get_patch_addresses(tb);
+
+  size_t gpc_offset = offsetof(CPUX86State, gpc);
+  target_components_t comp = decompose_target_address(gpc);
+  size_t code_len = generate_patch_code(addrs.jmp_rw, &comp, gpc_offset);
+  size_t hpc_offset = offsetof(CPUX86State, hpc);
+  comp = decompose_target_address(hpc);
+  code_len += generate_patch_code(addrs.jmp_rw + code_len, &comp, hpc_offset);
+
+  flush_idcache_range(addrs.jmp_rx, addrs.jmp_rw, code_len);
+}
+#endif
+
 static inline void tcg_out_goto_label(TCGContext *s, TCGLabel *l)
 {
     if (!l->has_value) {

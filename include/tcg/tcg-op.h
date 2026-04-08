@@ -983,6 +983,18 @@ void tcg_gen_goto_tb(unsigned idx);
  */
 void tcg_gen_lookup_and_goto_ptr(void);
 
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+/**
+ * tcg_gen_ret() - output ret TCG operation
+ * @dest: Return address / destination value
+ *
+ * When CONFIG_RET_OPT is enabled and the backend supports `op_ret`,
+ * this operation emits `INDEX_op_ret` which enables return chaining
+ * as part of the return-optimization path.
+ */
+void tcg_gen_ret(TCGv dest);
+#endif
+
 static inline void tcg_gen_plugin_cb_start(unsigned from, unsigned type,
                                            unsigned wr)
 {
