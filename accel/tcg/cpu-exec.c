@@ -43,10 +43,6 @@
 #include "sysemu/replay.h"
 #include "internal.h"
 
-#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
-#include "exec/tb-stats.h"
-#endif
-
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
 #include "exec/tcg-stats.h"
 #endif
@@ -197,11 +193,8 @@ cpu_tb_exec(CPUState *cpu, TranslationBlock *itb, int *tb_exit)
     qemu_thread_jit_execute();
     //tcg_qemu_tb_exec_num++;
     //printf("tcg_qemu_tb_exec=%d\n",tcg_qemu_tb_exec_num);
-#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
-    TB_STAT_GEN_INC(tb_exec_count);
-#endif
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
-    TCG_STAT_INC(tb_exec_count);
+    TCG_STAT_GEN_INC(tb_exec_count);
 #endif
     ret = tcg_qemu_tb_exec(env, tb_ptr);
     cpu->can_do_io = 1;
@@ -434,22 +427,14 @@ static TranslationBlock *get_next_tb(TranslationBlock *tb, CPUState *cpu,
                                      uint32_t cflags, bool *was_hit) {
   TranslationBlock *n;
   n = tb_lookup(cpu, tb->next_pc, cs_base, flags, cflags);
-#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
-  if (tb) {
-    TCG_STAT_INC(tb_lookup_hit);
-  } else {
-    TCG_STAT_INC(tb_lookup_miss);
-  }
-#endif
   if (!n) {
     *was_hit = false;
     n = tb_gen_code(cpu, tb->next_pc, cs_base, flags, cflags);
-#if defined(CONFIG_RET_OPT_LOG)
-    TB_STAT_GEN_INC(tb_gen_count);
-    TB_STAT_GEN_INC(tb_pre_translate_count);
-#endif
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
-    TCG_STAT_INC(tb_gen_count);
+    TCG_STAT_GEN_INC(tb_gen_count);
+#if defined(CONFIG_RET_OPT_LOG)
+    TCG_STAT_GEN_INC(tb_pre_translate_count);
+#endif
 #endif
   } else {
     *was_hit = true;
@@ -474,7 +459,7 @@ static TranslationBlock *get_next_tb(TranslationBlock *tb, CPUState *cpu,
 /*
  * pre_translate - eagerly translate the TB chain reachable via next_pc links.
  *
- * Statistics (when TB_STATS_DEPTH is enabled):
+ * Statistics (when TCG_STAT_DEPTH_* is enabled):
  *   pre_translate_calls     += 1
  *   pre_translate_depth_sum += <steps taken (capped at
  * PRE_TRANSLATE_MAX_DEPTH)> pre_translate_depth_max  = max(current max, depth
@@ -510,13 +495,13 @@ static void pre_translate(TranslationBlock *tb, CPUState *cpu,
     curr = next;
   }
 
-#if defined(CONFIG_RET_OPT_LOG)
-  TB_STAT_DEPTH_INC(pre_translate_calls);
-  TB_STAT_DEPTH_ADD(pre_translate_depth_sum, depth);
-  TB_STAT_DEPTH_MAX(pre_translate_depth_max, depth);
-  TB_STAT_DEPTH_ADD(pre_translate_lookup_hit, hits);
-  TB_STAT_DEPTH_ADD(pre_translate_lookup_miss, depth - hits);
-  TB_STAT_DEPTH_BUCKET(depth);
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+  TCG_STAT_DEPTH_INC(pre_translate_calls);
+  TCG_STAT_DEPTH_ADD(pre_translate_depth_sum, depth);
+  TCG_STAT_DEPTH_MAX(pre_translate_depth_max, depth);
+  TCG_STAT_DEPTH_ADD(pre_translate_lookup_hit, hits);
+  TCG_STAT_DEPTH_ADD(pre_translate_lookup_miss, depth - hits);
+  TCG_STAT_DEPTH_BUCKET(depth);
 #endif
 }
 #endif
@@ -534,21 +519,11 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
 
     tb = tb_lookup(cpu, pc, cs_base, flags, cflags);
-#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
-    TB_STAT_GEN_INC(tb_gen_count);
-#endif
-#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
-    if (tb) {
-      TCG_STAT_INC(tb_lookup_hit);
-    } else {
-      TCG_STAT_INC(tb_lookup_miss);
-    }
-#endif
     if (tb == NULL) {
         mmap_lock();
         tb = tb_gen_code(cpu, pc, cs_base, flags, cflags);
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
-        TCG_STAT_INC(tb_gen_count);
+        TCG_STAT_GEN_INC(tb_gen_count);
 #endif
 
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)

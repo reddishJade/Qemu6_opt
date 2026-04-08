@@ -16,8 +16,8 @@
 #include "exec/exec-all.h"
 #include "exec/tb-hash.h"
 
-#if defined(CONFIG_RET_OPT_LOG) && defined (__sw_64__)
-#include "exec/tb-stats.h"
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+#include "exec/tcg-stats.h"
 #endif
 
 /* Might cause an exception, so have a longjmp destination ready */
@@ -40,21 +40,21 @@ static inline TranslationBlock *tb_lookup(CPUState *cpu, target_ulong pc,
                tb->flags == flags &&
                tb->trace_vcpu_dstate == *cpu->trace_dstate &&
                tb_cflags(tb) == cflags)) {
-#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
-        TB_STAT_CACHE_INC(hit_count_tb_jmp_cache);
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+        TCG_STAT_CACHE_INC(hit_count_tb_jmp_cache);
 #endif
         return tb;
     }
     tb = tb_htable_lookup(cpu, pc, cs_base, flags, cflags);
     if (tb == NULL) {
-#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
-        TB_STAT_CACHE_INC(fallback_to_dispatcher);
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+        TCG_STAT_CACHE_INC(fallback_to_dispatcher);
 #endif
         return NULL;
     }
     qatomic_set(&cpu->tb_jmp_cache[hash], tb);
-#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
-        TB_STAT_CACHE_INC(hit_count_qht);
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+        TCG_STAT_CACHE_INC(hit_count_qht);
 #endif
     return tb;
 }

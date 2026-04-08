@@ -1342,9 +1342,6 @@ void tcg_exec_init(unsigned long tb_size, int splitwx)
     cpu_gen_init();
     page_init();
     tb_htable_init();
-#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
-    tb_stats_init();
-#endif
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
     tcg_stats_init();
 #endif
@@ -2128,14 +2125,6 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         tb_destroy(tb);
         return existing_tb;
     }
-#if (defined(CONFIG_INDIRECT_JUMP_OPT_PLT)) && defined(__sw_64__)
-#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
-    if (is_plt_stub == 0) {
-      TCG_STAT_ADD(tb_icount_sum, tb->icount);
-    }
-#endif
-#endif
-
 #if (defined(CONFIG_INDIRECT_JUMP_OPT_PLT)) && defined(__sw_64__)
     // TODO: Replace is_plt_stub global coupling with a frontend-native
     // DISAS_NO_CACHE flag check

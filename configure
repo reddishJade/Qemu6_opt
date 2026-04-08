@@ -5568,11 +5568,12 @@ fi
 if test "$reg_opt" = "yes" ; then
   echo "CONFIG_REG_OPT=y" >> $config_host_mak
 fi
+if test "$ret_opt_log" = "yes" ; then
+    ret_opt="yes"
+    echo "CONFIG_RET_OPT_LOG=y" >> $config_host_mak
+fi
 if test "$ret_opt" = "yes" ; then
     echo "CONFIG_RET_OPT=y" >> $config_host_mak
-fi
-if test "$ret_opt_log" = "yes" ; then
-    echo "CONFIG_RET_OPT_LOG=y" >> $config_host_mak
 fi
 if test "$tcg_stats" = "yes" ; then
   echo "CONFIG_TCG_STATS=y" >> $config_host_mak

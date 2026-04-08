@@ -26,10 +26,6 @@
 extern void __gcov_dump(void);
 #endif
 
-#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
-#include "exec/tb-stats.h"
-#endif
-
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
 #include "x86binary_analysis.h"
 #endif
@@ -45,9 +41,6 @@ void preexit_cleanup(CPUArchState *env, int code)
 #endif
 #ifdef CONFIG_GCOV
         __gcov_dump();
-#endif
-#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
-        tb_stats_dump();
 #endif
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
         tcg_stats_dump();
