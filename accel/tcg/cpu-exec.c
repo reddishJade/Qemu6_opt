@@ -509,6 +509,15 @@ static void pre_translate(TranslationBlock *tb, CPUState *cpu,
 
     curr = next;
   }
+
+#if defined(CONFIG_RET_OPT_LOG)
+  TB_STAT_DEPTH_INC(pre_translate_calls);
+  TB_STAT_DEPTH_ADD(pre_translate_depth_sum, depth);
+  TB_STAT_DEPTH_MAX(pre_translate_depth_max, depth);
+  TB_STAT_DEPTH_ADD(pre_translate_lookup_hit, hits);
+  TB_STAT_DEPTH_ADD(pre_translate_lookup_miss, depth - hits);
+  TB_STAT_DEPTH_BUCKET(depth);
+#endif
 }
 #endif
 
@@ -525,6 +534,9 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
 
     tb = tb_lookup(cpu, pc, cs_base, flags, cflags);
+#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
+    TB_STAT_GEN_INC(tb_gen_count);
+#endif
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
     if (tb) {
       TCG_STAT_INC(tb_lookup_hit);
