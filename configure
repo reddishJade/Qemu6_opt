@@ -360,6 +360,8 @@ debug="no"
 func_opt="no"
 inst_opt="no"
 reg_opt="no"
+ret_opt="no"
+ret_opt_log="no"
 native_libs="no"
 native_libs_load_debug="no"
 native_libs_call_debug="no"
@@ -1056,6 +1058,14 @@ for opt do
   --enable-reg-opt) reg_opt="yes"
   ;;
   --disable-reg-opt) reg_opt="no"
+  ;;
+  --enable-ret-opt) ret_opt="yes"
+  ;;
+  --disable-ret-opt) ret_opt="no"
+  ;;
+  --enable-ret-opt-log) ret_opt_log="yes"
+  ;;
+  --disable-ret-opt-log) ret_opt_log="no"
   ;;
   --enable-native-libs) native_libs="yes"
   ;;
@@ -5552,6 +5562,12 @@ if test "x$target_sw64_cpu" != "x"; then
 fi
 if test "$reg_opt" = "yes" ; then
   echo "CONFIG_REG_OPT=y" >> $config_host_mak
+fi
+if test "$ret_opt" = "yes" ; then
+    echo "CONFIG_RET_OPT=y" >> $config_host_mak
+fi
+if test "$ret_opt_log" = "yes" ; then
+    echo "CONFIG_RET_OPT_LOG=y" >> $config_host_mak
 fi
 if [ "$native_libs" = "yes" ] && \
    [ "$native_libs_load_debug" = "no" ] && \

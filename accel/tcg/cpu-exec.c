@@ -43,6 +43,10 @@
 #include "sysemu/replay.h"
 #include "internal.h"
 
+#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
+#include "exec/tb-stats.h"
+#endif
+
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
 #include "x86binary_analysis.h"
 #endif
@@ -193,6 +197,9 @@ cpu_tb_exec(CPUState *cpu, TranslationBlock *itb, int *tb_exit)
     qemu_thread_jit_execute();
     //tcg_qemu_tb_exec_num++;
     //printf("tcg_qemu_tb_exec=%d\n",tcg_qemu_tb_exec_num);
+#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
+    TB_STAT_GEN_INC(tb_exec_count);
+#endif
     ret = tcg_qemu_tb_exec(env, tb_ptr);
     cpu->can_do_io = 1;
     /*

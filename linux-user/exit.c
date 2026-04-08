@@ -26,6 +26,10 @@
 extern void __gcov_dump(void);
 #endif
 
+#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
+#include "exec/tb-stats.h"
+#endif
+
 void preexit_cleanup(CPUArchState *env, int code)
 {
 #ifdef CONFIG_GPROF
@@ -33,6 +37,9 @@ void preexit_cleanup(CPUArchState *env, int code)
 #endif
 #ifdef CONFIG_GCOV
         __gcov_dump();
+#endif
+#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
+        tb_stats_dump();
 #endif
         gdb_exit(code);
         qemu_plugin_atexit_cb();

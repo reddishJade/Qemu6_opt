@@ -1338,6 +1338,9 @@ void tcg_exec_init(unsigned long tb_size, int splitwx)
     cpu_gen_init();
     page_init();
     tb_htable_init();
+#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
+    tb_stats_init();
+#endif
 
     ok = alloc_code_gen_buffer(size_code_gen_buffer(tb_size),
                                splitwx, &error_fatal);

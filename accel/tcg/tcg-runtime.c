@@ -37,6 +37,11 @@
 #include "include/qapi/error.h"
 #include "include/qemu/log.h"
 #endif
+
+#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
+#include "exec/tb-stats.h"
+#endif
+
 /* 32-bit helpers */
 
 int32_t HELPER(div_i32)(int32_t arg1, int32_t arg2)
@@ -167,11 +172,19 @@ const void *HELPER(lookup_tb_ptr)(CPUArchState *env)
     }
 #endif
 
+#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
+    TB_STAT_LOOKUP_INC(lookup_count);
+#endif
     tb = tb_lookup(cpu, pc, cs_base, flags, curr_cflags(cpu));
     if (tb == NULL) {
-        return tcg_code_gen_epilogue;
+#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
+      TB_STAT_LOOKUP_INC(lookup_miss);
+#endif
+      return tcg_code_gen_epilogue;
     }
-
+#if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
+    TB_STAT_LOOKUP_INC(lookup_success);
+#endif
 
     qemu_log_mask_and_addr(CPU_LOG_EXEC, pc,
                            "Chain %d: %p ["
