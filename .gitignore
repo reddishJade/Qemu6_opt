@@ -1,0 +1,20 @@
+# 忽略所有内容
+*
+
+# 不忽略 .gitignore 本身
+!.gitignore
+
+# 只管理以下文件夹
+!accel/
+!include/
+!target/
+!tcg/
+!linux-user/
+
+# 不忽略这些文件夹下的所有内容
+!accel/**
+!include/**
+!target/**
+!tcg/**
+!linux-user/**
+!configure
