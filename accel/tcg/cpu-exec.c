@@ -47,10 +47,6 @@
 #include "exec/tb-stats.h"
 #endif
 
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-#include "x86binary_analysis.h"
-#endif
-
 /* -icount align implementation. */
 static int tcg_qemu_tb_exec_num=0;
 typedef struct SyncClocks {
@@ -523,17 +519,6 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
         }
 #endif
 
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-        if(is_plt_stub == 2) { //DISAS_PLT_FUNCTION
-            pc = tb->pc;
-            tb = tb_lookup(cpu, pc, cs_base, flags, cflags);
-            if(!tb) {
-                tb = tb_gen_code(cpu, pc, cs_base, flags, cflags);
-            }
-        } else if(is_plt_stub == 1) { //DISAS_PLT_STUB
-            last_tb = 0; //do not tb_add_jump
-        }
-#endif
         mmap_unlock();
         /* We add the TB in the virtual pc hash table for the fast lookup */
         qatomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)], tb);

@@ -21,7 +21,11 @@
 #include "exec/log.h"
 #include "qemu.h"
 
-#if defined(CONFIG_NATIVE_LIBS) || defined(CONFIG_NATIVE_LIBS_LOAD_DEBUG) || defined(CONFIG_NATIVE_LIBS_CALL_DEBUG) || defined(CONFIG_INDIRECT_JUMP_OPT_PLT)
+#if (defined(CONFIG_NATIVE_LIBS) || defined(CONFIG_NATIVE_LIBS_LOAD_DEBUG) ||  \
+     defined(CONFIG_NATIVE_LIBS_CALL_DEBUG) ||                                 \
+     defined(CONFIG_INDIRECT_JUMP_OPT_PLT) ||                                  \
+     defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG)) &&                           \
+    defined(__sw_64__)
 #include "x86binary_analysis.h"
 #endif
 
@@ -715,10 +719,13 @@ abi_long target_mmap(abi_ulong start, abi_ulong len, int target_prot,
     }
     tb_invalidate_phys_range(start, start + len);
     mmap_unlock();
-#if defined(CONFIG_NATIVE_LIBS) || defined(CONFIG_NATIVE_LIBS_LOAD_DEBUG) || defined(CONFIG_NATIVE_LIBS_CALL_DEBUG) || defined(CONFIG_INDIRECT_JUMP_OPT_PLT)
-    if(target_prot == (PROT_EXEC | PROT_READ))
-    {
-        analyze_x86binary(fd, start, len, offset);
+#if (defined(CONFIG_NATIVE_LIBS) || defined(CONFIG_NATIVE_LIBS_LOAD_DEBUG) || \
+      defined(CONFIG_NATIVE_LIBS_CALL_DEBUG) ||                                \
+      defined(CONFIG_INDIRECT_JUMP_OPT_PLT) ||                                 \
+      defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG)) &&                          \
+     defined(__sw_64__)
+    if (target_prot == (PROT_EXEC | PROT_READ)) {
+      analyze_x86binary(fd, start, len, offset);
     }
 #endif
     return start;

@@ -51,10 +51,6 @@ typedef enum DisasJumpType {
     DISAS_TARGET_9,
     DISAS_TARGET_10,
     DISAS_TARGET_11,
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-    DISAS_PLT_STUB,
-    DISAS_PLT_FUNCTION,
-#endif
 } DisasJumpType;
 
 /**

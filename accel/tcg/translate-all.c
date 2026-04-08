@@ -1925,14 +1925,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 
     tcg_ctx->cpu = env_cpu(env);
     gen_intermediate_code(cpu, tb, max_insns);
-#if (defined(CONFIG_INDIRECT_JUMP_OPT_PLT)) && defined(__sw_64__)
-    if(is_plt_stub == 2) { //gen_intermediate_code DISAS_PLT_FUNCTION
-        pc = tb->pc;
-        tcg_ctx->code_gen_ptr = tb;
-        tcg_func_start(tcg_ctx);
-        return tb;
-    }
-#endif
+
     tcg_ctx->cpu = NULL;
     max_insns = tb->icount;
 
@@ -2129,15 +2122,26 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         return existing_tb;
     }
 #if (defined(CONFIG_INDIRECT_JUMP_OPT_PLT)) && defined(__sw_64__)
-    if(is_plt_stub != 1) //gen_intermediate_code DISAS_PLT_STUB
-    {
-        tcg_tb_insert(tb);
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+    if (is_plt_stub == 0) {
+      TCG_STAT_ADD(tb_icount_sum, tb->icount);
+    }
+#endif
+#endif
+
+#if (defined(CONFIG_INDIRECT_JUMP_OPT_PLT)) && defined(__sw_64__)
+    // TODO: Replace is_plt_stub global coupling with a frontend-native
+    // DISAS_NO_CACHE flag check
+    if (is_plt_stub != 1) { // gen_intermediate_code DISAS_PLT_STUB
+      tcg_tb_insert(tb);
+    } else {
+      is_plt_stub = 0;
     }
 #else
     tcg_tb_insert(tb);
 #endif
     return tb;
-}
+ }
 
 /*
  * @p must be non-NULL.

@@ -33,7 +33,8 @@
 #include "trace-tcg.h"
 #include "exec/log.h"
 
-#if (defined(CONFIG_NATIVE_LIBS) || defined(CONFIG_INDIRECT_JUMP_OPT_PLT)) && defined(__sw_64__)
+#if (defined(CONFIG_NATIVE_LIBS) || defined(CONFIG_INDIRECT_JUMP_OPT_PLT)) &&  \
+    defined(__sw_64__)
 #include "x86binary_analysis.h"
 #endif
 
@@ -8273,135 +8274,133 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
     case 0xcc: /* int3 */
     {
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-        uint32_t offset = 0;
-        uint64_t pc = s->pc -1;
-        uint64_t got = 0;
-        uint64_t dynsym_addr = 0;
+      uint32_t offset = 0;
+      uint64_t pc = s->pc - 1;
+      uint64_t got = 0;
+      uint64_t dynsym_addr = 0;
 
-        if( *(uint16_t*)(pc) == PLT_WITHOUT_CET ) //0xCC 'P'
-        {
-            /*  plt table
-            => 0x555555555050 ff 25 a6 2f 00 00 jmp    *0x2fa6(%rip)
-               0x555555555056 68 01 00 00 00    push $0x1
-               0x55555555501b e9 d0 ff ff ff    jmp    3fcff0
-               #modifid:
-            => 0x555555555050 0xCC 'p' a6 2f 00 00 jmp    *0x2fa6(%rip)
-               0x555555555056 68 01 00 00 00    push $0x1
-               0x55555555501b e9 d0 ff ff ff    jmp    3fcff0
-            */
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
-            PLT_HashValue *plt_value = NULL;
-            plt_value = g_hash_table_lookup(global_plt_table, (gpointer)(pc));
-#endif
-            offset = *(uint32_t*)(pc + 2);  //get 0x2fa6
-            got = (uint64_t)pc + 6 + (uint64_t)offset; //0x55555555505a + offset
-            dynsym_addr = *(uint64_t*)got;
-            if(dynsym_addr >= pc && dynsym_addr < pc +16) {
-                is_plt_stub = 1; // call dl_runtime_resolve
-                s->base.is_jmp = DISAS_PLT_STUB;
-            } else {
-                is_plt_stub = 2; // call function
-                s->base.is_jmp = DISAS_PLT_FUNCTION;
-            }
-            s->pc = dynsym_addr;
-
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
-            plt_value = g_hash_table_lookup(global_plt_table, (gpointer)(pc));
-            if(is_plt_stub == 1)
-                printf("0x%lx callq [%s]:%s@plt=0x%lx\n",(*(uint64_t*)(env->regs[R_ESP]) - 5), plt_value->module_name, plt_value->funcname, dynsym_addr);
-            else // is_plt_stub = 2;
-                printf("0x%lx callq [%s]:%s[function]=0x%lx\n",(*(uint64_t*)(env->regs[R_ESP]) - 5), plt_value->module_name, plt_value->funcname, dynsym_addr);
-#endif
-
-            break;
+      if (*(uint16_t *)(pc) == PLT_WITHOUT_CET) // 0xCC 'P'
+      {
+        /*  plt table
+        => 0x555555555050 ff 25 a6 2f 00 00 jmp    *0x2fa6(%rip)
+           0x555555555056 68 01 00 00 00    push $0x1
+           0x55555555501b e9 d0 ff ff ff    jmp    3fcff0
+           #modifid:
+        => 0x555555555050 0xCC 'p' a6 2f 00 00 jmp    *0x2fa6(%rip)
+           0x555555555056 68 01 00 00 00    push $0x1
+           0x55555555501b e9 d0 ff ff ff    jmp    3fcff0
+        */
+        offset = *(uint32_t *)(pc + 2);            // get 0x2fa6
+        got = (uint64_t)pc + 6 + (uint64_t)offset; // 0x55555555505a + offset
+        dynsym_addr = *(uint64_t *)got;
+        if (dynsym_addr >= pc && dynsym_addr < pc + 16) {
+          // TODO: Replace is_plt_stub global coupling with a frontend-native
+          // DISAS_NO_CACHE flag mechanism
+          is_plt_stub = 1; // Used to prevent HTABLE caching in translate-all.c
+          gen_jmp_im(s, dynsym_addr - s->cs_base);
+          tcg_gen_exit_tb(NULL, 0); // Exits softly to cpu loop without chaining
+          s->base.is_jmp = DISAS_NORETURN;
+        } else {
+          gen_jmp_im(s, dynsym_addr - s->cs_base);
+          gen_eob(s); // Emits chaining logic (direct jump)
+          s->base.is_jmp = DISAS_NORETURN;
         }
-        else if( *(uint16_t*)(pc) == PLT_WITH_CET )
-        {
-            /*  plt table
-            => 0x555555555050 f3 0f 1e fa   endbr64
-               0x555555555054 [f2] ff 25 a6 2f 00 00   jmp *0x2fa6(%rip)
-               0x55555555505a[b] 66 0f 1f 44 00 00 nopw   0x0(%rax,%rax,1)
-               #modifid:
-            => 0x555555555050 0xCC 'E' [f2] a6 2f 00 00 xx
-               0x555555555058 plt_begin_va
-            */
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
-            PLT_HashValue *plt_value = NULL;
-            plt_value = g_hash_table_lookup(global_plt_table, (gpointer)(pc));
-#endif
-            if(*(uint8_t *)(pc +2) == 0xf2) {
-                offset = *(uint32_t*)(pc + 3);  //get 0x2fa6
-                got = (uint64_t)pc + 4  + 7 + (uint64_t)offset; //0x55555555505a + offset
-            } else {
-                offset = *(uint32_t*)(pc + 2);  //get 0x2fa6
-                got = (uint64_t)pc + 4  + 6 + (uint64_t)offset; //0x55555555505a + offset
-            }
-                dynsym_addr = *(uint64_t*)got;
-                uint64_t plt_begin_va = *(uint64_t*)(pc+8);
-                if(dynsym_addr >= plt_begin_va && dynsym_addr < pc) {
-                    is_plt_stub = 1; // call dl_runtime_resolve
-                    s->base.is_jmp = DISAS_PLT_STUB;
-                } else {
-                    is_plt_stub = 2; // call function
-                    s->base.is_jmp = DISAS_PLT_FUNCTION;
-                }
-            s->pc = dynsym_addr;
 
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
-            if(is_plt_stub == 1)
-                printf("0x%lx callq [%s]:%s@plt=0x%lx\n",(*(uint64_t*)(env->regs[R_ESP]) - 5), plt_value->module_name, plt_value->funcname, dynsym_addr);
-            else // is_plt_stub = 2;
-                printf("0x%lx callq [%s]:%s[function]=0x%lx\n",(*(uint64_t*)(env->regs[R_ESP]) - 5), plt_value->module_name, plt_value->funcname, dynsym_addr);
-#endif
-
-            break;
+        break;
+      } else if (*(uint16_t *)(pc) == PLT_WITH_CET) {
+        /*  plt table
+        => 0x555555555050 f3 0f 1e fa   endbr64
+           0x555555555054 [f2] ff 25 a6 2f 00 00   jmp *0x2fa6(%rip)
+           0x55555555505a[b] 66 0f 1f 44 00 00 nopw   0x0(%rax,%rax,1)
+           #modifid:
+        => 0x555555555050 0xCC 'E' [f2] a6 2f 00 00 xx
+           0x555555555058 plt_begin_va
+        */
+        if (*(uint8_t *)(pc + 2) == 0xf2) {
+          offset = *(uint32_t *)(pc + 3); // get 0x2fa6
+          got = (uint64_t)pc + 4 + 7 +
+                (uint64_t)offset; // 0x55555555505a + offset
+        } else {
+          offset = *(uint32_t *)(pc + 2); // get 0x2fa6
+          got = (uint64_t)pc + 4 + 6 +
+                (uint64_t)offset; // 0x55555555505a + offset
         }
+        dynsym_addr = *(uint64_t *)got;
+        uint64_t plt_begin_va = *(uint64_t *)(pc + 8);
+        if (dynsym_addr >= plt_begin_va && dynsym_addr < pc) {
+          // TODO: Replace is_plt_stub global coupling with a frontend-native
+          // DISAS_NO_CACHE flag mechanism
+          is_plt_stub = 1; // Used to prevent HTABLE caching in translate-all.c
+          gen_jmp_im(s, dynsym_addr - s->cs_base);
+          tcg_gen_exit_tb(NULL, 0);
+          s->base.is_jmp = DISAS_NORETURN;
+        } else {
+          gen_jmp_im(s, dynsym_addr - s->cs_base);
+          gen_eob(s);
+          s->base.is_jmp = DISAS_NORETURN;
+        }
+
+        break;
+      }
 #endif // end of CONFIG_INDIRECT_JUMP_OPT_PLT
 
 #if defined(CONFIG_NATIVE_LIBS) && defined(__sw_64__)
-        // call native libs
-        /* please refer to do_replace_x86func_with_sw64Bridge in native_libs.c
-        // 写入单字节 0xCC 到 targetaddr 地址
-        *(uint8_t *)targetaddr = 0xCC;
-        // 写入字符 'S' 到 targetaddr + 1 的位置（第二个字节）
-        *(uint8_t *)((char *)targetaddr + 1) = 'S';
-        // 写入字符 'S' 到 targetaddr + 1 的位置（第三个字节）
-        *(uint8_t *)((char *)targetaddr + 2) = 'C';
-        */
-        if( *(uint8_t *)(s->pc + 0) == 'S' && *(uint8_t *)(s->pc + 1) == 'C') {
-            FunctionMetadata *meta = find_function_metadata_by_address((uintptr_t)s->pc-1);
+      // call native libs
+      /* please refer to do_replace_x86func_with_sw64Bridge in native_libs.c
+      // 写入单字节 0xCC 到 targetaddr 地址
+      *(uint8_t *)targetaddr = 0xCC;
+      // 写入字符 'S' 到 targetaddr + 1 的位置（第二个字节）
+      *(uint8_t *)((char *)targetaddr + 1) = 'S';
+      // 写入字符 'S' 到 targetaddr + 1 的位置（第三个字节）
+      *(uint8_t *)((char *)targetaddr + 2) = 'C';
+      */
+      if (*(uint8_t *)(s->pc + 0) == 'S' && *(uint8_t *)(s->pc + 1) == 'C') {
+        FunctionMetadata *meta =
+            find_function_metadata_by_address((uintptr_t)s->pc - 1);
 #if 0 // for debug
             printf("0x%lx call native function : %s\n",  s->pc-1, meta->funcname);
 #endif
-            if(meta == NULL) {
-                perror("native lib infomation is not found\n");
-                exit(-1);
-            }
-            gen_update_cc_op(s);
-            if (meta->bridge.rule.arg == ARG_GPR && meta->bridge.rule.ret == RET_GPR) {
-                gen_helper_call_native_lib_GPR[meta->bridge.rule.args_count](cpu_env, tcg_const_i64(meta->bridge.hostaddr));
-            } else if(meta->bridge.rule.arg == ARG_GPR && meta->bridge.rule.ret == RET_VOID) {
-                gen_helper_call_native_lib_GPR_VOID[meta->bridge.rule.args_count](cpu_env, tcg_const_i64(meta->bridge.hostaddr));
-            } else if (meta->bridge.rule.arg == ARG_FPR && meta->bridge.rule.ret == RET_FPR) {
-                gen_helper_call_native_lib_FPR[meta->bridge.rule.args_count](cpu_env, tcg_const_i64(meta->bridge.hostaddr));
-            } else if(meta->bridge.rule.arg == ARG_FPR && meta->bridge.rule.ret == RET_VOID) {
-                gen_helper_call_native_lib_FPR_VOID[meta->bridge.rule.args_count](cpu_env, tcg_const_i64(meta->bridge.hostaddr));
-            } else if(meta->bridge.rule.arg == ARG_FPR_GPR && meta->bridge.rule.ret == RET_GPR) {
-                gen_helper_call_native_lib_FPR_GPR[meta->bridge.rule.args_count](cpu_env, tcg_const_i64(meta->bridge.hostaddr));
-            } else if(meta->bridge.rule.arg == ARG_FPR_GPR && meta->bridge.rule.ret == RET_VOID) {
-                gen_helper_call_native_lib_FPR_GPR_VOID[meta->bridge.rule.args_count](cpu_env, tcg_const_i64(meta->bridge.hostaddr));
-            } else {
-                fprintf(stderr, "call naitve lib %s unsupport\n",meta->funcname);
-                exit(-1);
-            }
-            // ret to caller
-            ot = gen_pop_T0(s);
-            gen_pop_update(s, ot);
-            gen_op_jmp_v(s->T0);
-            gen_bnd_jmp(s);
-            gen_jr(s, s->T0);
-            break;
+        if (meta == NULL) {
+          perror("native lib infomation is not found\n");
+          exit(-1);
         }
+        gen_update_cc_op(s);
+        if (meta->bridge.rule.arg == ARG_GPR &&
+            meta->bridge.rule.ret == RET_GPR) {
+          gen_helper_call_native_lib_GPR[meta->bridge.rule.args_count](
+              cpu_env, tcg_const_i64(meta->bridge.hostaddr));
+        } else if (meta->bridge.rule.arg == ARG_GPR &&
+                   meta->bridge.rule.ret == RET_VOID) {
+          gen_helper_call_native_lib_GPR_VOID[meta->bridge.rule.args_count](
+              cpu_env, tcg_const_i64(meta->bridge.hostaddr));
+        } else if (meta->bridge.rule.arg == ARG_FPR &&
+                   meta->bridge.rule.ret == RET_FPR) {
+          gen_helper_call_native_lib_FPR[meta->bridge.rule.args_count](
+              cpu_env, tcg_const_i64(meta->bridge.hostaddr));
+        } else if (meta->bridge.rule.arg == ARG_FPR &&
+                   meta->bridge.rule.ret == RET_VOID) {
+          gen_helper_call_native_lib_FPR_VOID[meta->bridge.rule.args_count](
+              cpu_env, tcg_const_i64(meta->bridge.hostaddr));
+        } else if (meta->bridge.rule.arg == ARG_FPR_GPR &&
+                   meta->bridge.rule.ret == RET_GPR) {
+          gen_helper_call_native_lib_FPR_GPR[meta->bridge.rule.args_count](
+              cpu_env, tcg_const_i64(meta->bridge.hostaddr));
+        } else if (meta->bridge.rule.arg == ARG_FPR_GPR &&
+                   meta->bridge.rule.ret == RET_VOID) {
+          gen_helper_call_native_lib_FPR_GPR_VOID[meta->bridge.rule.args_count](
+              cpu_env, tcg_const_i64(meta->bridge.hostaddr));
+        } else {
+          fprintf(stderr, "call naitve lib %s unsupport\n", meta->funcname);
+          exit(-1);
+        }
+        // ret to caller
+        ot = gen_pop_T0(s);
+        gen_pop_update(s, ot);
+        gen_op_jmp_v(s->T0);
+        gen_bnd_jmp(s);
+        gen_jr(s, s->T0);
+        break;
+      }
 #endif // endof CONFIG_NATIVE_LIBS
         gen_interrupt(s, EXCP03_INT3, pc_start - s->cs_base, s->pc - s->cs_base);
         break;
@@ -9965,10 +9964,6 @@ static void i386_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
     pc_next = disas_insn(dc, cpu);
     dc->base.pc_next = pc_next;
 
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-    if(dc->base.is_jmp == DISAS_PLT_STUB || dc->base.is_jmp == DISAS_PLT_FUNCTION)
-        return;
-#endif
     if (dc->tf || (dc->base.tb->flags & HF_INHIBIT_IRQ_MASK)) {
         /* if single step mode, we generate only one instruction and
            generate an exception */
@@ -10029,13 +10024,6 @@ void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb, int max_insns)
 {
     DisasContext dc;
     translator_loop(&i386_tr_ops, &dc.base, cpu, tb, max_insns);
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-    if (dc.base.is_jmp == DISAS_PLT_STUB) {
-        tcg_func_start(tcg_ctx);
-        translator_loop(&i386_tr_ops, &dc.base, cpu, tb, max_insns);
-        is_plt_stub = 1;
-    }
-#endif
 }
 
 void restore_state_to_opc(CPUX86State *env, TranslationBlock *tb,

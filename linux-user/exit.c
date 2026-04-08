@@ -30,6 +30,14 @@ extern void __gcov_dump(void);
 #include "exec/tb-stats.h"
 #endif
 
+#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
+#include "x86binary_analysis.h"
+#endif
+
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+#include "exec/tcg-stats.h"
+#endif
+
 void preexit_cleanup(CPUArchState *env, int code)
 {
 #ifdef CONFIG_GPROF
@@ -40,6 +48,12 @@ void preexit_cleanup(CPUArchState *env, int code)
 #endif
 #if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
         tb_stats_dump();
+#endif
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+        tcg_stats_dump();
+#endif
+#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
+        x86binary_analysis_dump_stats();
 #endif
         gdb_exit(code);
         qemu_plugin_atexit_cb();

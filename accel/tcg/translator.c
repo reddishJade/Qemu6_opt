@@ -21,10 +21,6 @@
 
 #include <unistd.h>
 
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-#include "x86binary_analysis.h"
-#endif
-
 /* Pairs with tcg_clear_temp_count.
    To be called by #TranslatorOps.{translate_insn,tb_stop} if
    (1) the target is sufficiently clean to support reporting,
@@ -43,9 +39,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 {
     int bp_insn = 0;
     bool plugin_enabled;
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-    is_plt_stub = 0;
-#endif
+
     /* Initialize DisasContext */
     db->tb = tb;
     db->pc_first = tb->pc;
@@ -134,12 +128,6 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
             break;
         }
     }//end while
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-    if(db->is_jmp == DISAS_PLT_STUB || db->is_jmp == DISAS_PLT_FUNCTION) {
-        tb->pc = db->pc_next;
-        return;
-    }
-#endif
 
     /* The disas_log hook may use these values rather than recompute.  */
     tb->size = db->pc_next - db->pc_first;
