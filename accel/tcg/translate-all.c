@@ -67,6 +67,10 @@
 #include "x86binary_analysis.h"
 #endif
 
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+#include "exec/tcg-stats.h"
+#endif
+
 /* #define DEBUG_TB_INVALIDATE */
 /* #define DEBUG_TB_FLUSH */
 /* make various TB consistency checks */
@@ -1340,6 +1344,9 @@ void tcg_exec_init(unsigned long tb_size, int splitwx)
     tb_htable_init();
 #if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
     tb_stats_init();
+#endif
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+    tcg_stats_init();
 #endif
 
     ok = alloc_code_gen_buffer(size_code_gen_buffer(tb_size),

@@ -41,6 +41,9 @@
 #if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
 #include "exec/tb-stats.h"
 #endif
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+#include "exec/tcg-stats.h"
+#endif
 
 /* 32-bit helpers */
 
@@ -172,18 +175,28 @@ const void *HELPER(lookup_tb_ptr)(CPUArchState *env)
     }
 #endif
 
+    tb = tb_lookup(cpu, pc, cs_base, flags, curr_cflags(cpu));
 #if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
     TB_STAT_LOOKUP_INC(lookup_count);
 #endif
-    tb = tb_lookup(cpu, pc, cs_base, flags, curr_cflags(cpu));
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+    TCG_STAT_INC(lookup_tb_ptr_count);
+#endif
+
     if (tb == NULL) {
 #if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
       TB_STAT_LOOKUP_INC(lookup_miss);
+#endif
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+      TCG_STAT_INC(lookup_tb_ptr_miss);
 #endif
       return tcg_code_gen_epilogue;
     }
 #if defined(CONFIG_RET_OPT_LOG) && defined(__sw_64__)
     TB_STAT_LOOKUP_INC(lookup_success);
+#endif
+#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
+    TCG_STAT_INC(lookup_tb_ptr_hit);
 #endif
 
     qemu_log_mask_and_addr(CPU_LOG_EXEC, pc,

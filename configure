@@ -362,6 +362,7 @@ inst_opt="no"
 reg_opt="no"
 ret_opt="no"
 ret_opt_log="no"
+tcg_stats="no"
 native_libs="no"
 native_libs_load_debug="no"
 native_libs_call_debug="no"
@@ -1066,6 +1067,10 @@ for opt do
   --enable-ret-opt-log) ret_opt_log="yes"
   ;;
   --disable-ret-opt-log) ret_opt_log="no"
+  ;;
+  --enable-tcg-stats) tcg_stats="yes"
+  ;;
+  --disable-tcg-stats) tcg_stats="no"
   ;;
   --enable-native-libs) native_libs="yes"
   ;;
@@ -5568,6 +5573,9 @@ if test "$ret_opt" = "yes" ; then
 fi
 if test "$ret_opt_log" = "yes" ; then
     echo "CONFIG_RET_OPT_LOG=y" >> $config_host_mak
+fi
+if test "$tcg_stats" = "yes" ; then
+  echo "CONFIG_TCG_STATS=y" >> $config_host_mak
 fi
 if [ "$native_libs" = "yes" ] && \
    [ "$native_libs_load_debug" = "no" ] && \
