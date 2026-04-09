@@ -1919,11 +1919,11 @@ static void modify_direct_addr(uintptr_t addr, uintptr_t jmp_rw, uintptr_t jmp_r
 
     val = (val - l1) >> 16;
     l2 = (int16_t)val;
-    
-    
+
+
     //tcg_out_insn_ldst(s, OPC_LDI, rd, rs, l2);
     i1 = OPC_LDI | (rd & 0x1f) << 21 | (rs & 0x1f) << 16 | (l2 & 0xffff);
-    
+
     //tcg_out_insn_simpleImm(s, OPC_SLLL_I, rd, rd, 32);
     i2 = OPC_SLLL_I | (rd & 0x1f) << 21 | (32 & 0xff) << 13 | (rd & 0x1f);
     pair = (uint64_t)i2 << 32 | i1;
@@ -1955,7 +1955,7 @@ void tb_target_set_jmp_target(uintptr_t tc_ptr, uintptr_t jmp_rx, uintptr_t jmp_
     
     if (offset == sextract64(offset, 0, 21)) {
         i1 = OPC_BR | (TCG_REG_ZERO & 0x1f) << 21| ((offset >> 2) & 0x1fffff);
-	i2 = OPC_NOP;
+        i2 = OPC_NOP;
         pair = (uint64_t)i2 << 32 | i1;
         qatomic_set((uint64_t *)jmp_rw, pair);
         flush_idcache_range(jmp_rx, jmp_rw, 8); //not support no sw_64
@@ -1969,95 +1969,95 @@ void tb_target_set_jmp_target(uintptr_t tc_ptr, uintptr_t jmp_rx, uintptr_t jmp_
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
 /* Address-calculation helpers */
 typedef struct {
-  uintptr_t jmp_rx; /* RX address to execute from */
-  uintptr_t jmp_rw; /* RW address to write patches into */
+    uintptr_t jmp_rx;  /* RX address to execute from */
+    uintptr_t jmp_rw;  /* RW address to write patches into */
 } patch_addresses_t;
 
-static inline patch_addresses_t get_patch_addresses(TranslationBlock *tb) {
-  uintptr_t tc_ptr = (uintptr_t)tb->tc.ptr;
-  uintptr_t jmp_rx = tc_ptr + tb->jmp_to_next_offset;
-  uintptr_t jmp_rw = jmp_rx - tcg_splitwx_diff;
+static inline patch_addresses_t get_patch_addresses(TranslationBlock *tb)
+{
+    uintptr_t tc_ptr = (uintptr_t)tb->tc.ptr;
+    uintptr_t jmp_rx = tc_ptr + tb->jmp_to_next_offset;
+    uintptr_t jmp_rw = jmp_rx - tcg_splitwx_diff;
 
-  return (patch_addresses_t){.jmp_rx = jmp_rx, .jmp_rw = jmp_rw};
+    return (patch_addresses_t){ .jmp_rx = jmp_rx, .jmp_rw = jmp_rw };
 }
 
 /* Target-address decomposition */
 typedef struct {
-  tcg_target_long l0; /* low 16 bits */
-  tcg_target_long l1; /* middle 16 bits */
-  tcg_target_long l2; /* high 16 bits */
+    tcg_target_long l0;  /* low 16 bits */
+    tcg_target_long l1;  /* middle 16 bits */
+    tcg_target_long l2;  /* high 16 bits */
 } target_components_t;
 
-static inline target_components_t decompose_target_address(uintptr_t target) {
-  target_components_t comp;
+static inline target_components_t decompose_target_address(uintptr_t target)
+{
+    target_components_t comp;
 
-  comp.l0 = (int16_t)target;
-  target = (target - comp.l0) >> 16;
-  comp.l1 = (int16_t)target;
-  target = (target - comp.l1) >> 16;
-  comp.l2 = (int16_t)target;
+    comp.l0 = (int16_t)target;
+    target  = (target - comp.l0) >> 16;
+    comp.l1 = (int16_t)target;
+    target  = (target - comp.l1) >> 16;
+    comp.l2 = (int16_t)target;
 
-  return comp;
+    return comp;
 }
 
 /* Instruction-pair write helper */
-static inline void write_insn_pair(uintptr_t *addr, tcg_insn_unit i1,
-                                   tcg_insn_unit i2) {
-  uint64_t pair = (uint64_t)i2 << 32 | i1;
-  qatomic_set((uint64_t *)addr, pair);
+static inline void write_insn_pair(uintptr_t *addr, tcg_insn_unit i1, tcg_insn_unit i2)
+{
+    uint64_t pair = (uint64_t)i2 << 32 | i1;
+    qatomic_set((uint64_t *)addr, pair);
 }
 
 /* Patch-code generator */
-static size_t generate_patch_code(uintptr_t jmp_addr,
-                                  const target_components_t *comp,
-                                  size_t offset) {
-  TCGReg rs = TCG_REG_ZERO;
-  TCGReg rd = TCG_REG_TMP;
-  TCGReg rt = TCG_REG_X10;
-  uintptr_t jmp = jmp_addr;
-  tcg_insn_unit i1, i2;
+static size_t generate_patch_code(uintptr_t jmp_addr, const target_components_t *comp, size_t offset)
+{
+    TCGReg rs  = TCG_REG_ZERO;
+    TCGReg rd  = TCG_REG_TMP;
+    TCGReg rt  = TCG_REG_X10;
+    uintptr_t jmp = jmp_addr;
+    tcg_insn_unit i1, i2;
 
-  /* First pair: load ESP + load high 16 bits into rd */
-  // i1 = OPC_LDL | (rt & 0x1f) << 21 | (TCG_AREG0 & 0x1f) << 16 | (offset &
-  // 0xffff); i1 = OPC_ADDL_I | (TCG_AREG0 & 0x1f) << 21 | (offset & 0x1f) << 13
-  // | (rt & 0x1f);
-  i1 = OPC_NOP;
-  i2 = OPC_LDI | (rd & 0x1f) << 21 | (rs & 0x1f) << 16 | (comp->l2 & 0xffff);
-  write_insn_pair((uintptr_t *)jmp, i1, i2);
-  jmp += 8;
+    /* First pair: load ESP + load high 16 bits into rd */
+    // i1 = OPC_LDL | (rt & 0x1f) << 21 | (TCG_AREG0 & 0x1f) << 16 | (offset & 0xffff);
+    // i1 = OPC_ADDL_I | (TCG_AREG0 & 0x1f) << 21 | (offset & 0x1f) << 13 | (rt & 0x1f);
+    i1 = OPC_NOP;
+    i2 = OPC_LDI | (rd & 0x1f) << 21 | (rs & 0x1f) << 16 | (comp->l2 & 0xffff);
+    write_insn_pair((uintptr_t *)jmp, i1, i2);
+    jmp += 8;
 
-  /* Second pair: shift left by 32 bits + load middle 16 bits */
-  i1 = OPC_SLLL_I | (rd & 0x1f) << 21 | (32 & 0xff) << 13 | (rd & 0x1f);
-  i2 = OPC_LDIH | (rd & 0x1f) << 21 | (rd & 0x1f) << 16 | (comp->l1 & 0xffff);
-  write_insn_pair((uintptr_t *)jmp, i1, i2);
-  jmp += 8;
+    /* Second pair: shift left by 32 bits + load middle 16 bits */
+    i1 = OPC_SLLL_I | (rd & 0x1f) << 21 | (32 & 0xff) << 13 | (rd & 0x1f);
+    i2 = OPC_LDIH | (rd & 0x1f) << 21 | (rd & 0x1f) << 16 | (comp->l1 & 0xffff);
+    write_insn_pair((uintptr_t *)jmp, i1, i2);
+    jmp += 8;
 
-  /* Third pair: load low 16 bits + store to stack */
-  i1 = OPC_LDI | (rd & 0x1f) << 21 | (rd & 0x1f) << 16 | (comp->l0 & 0xffff);
-  // i2 = OPC_STL | (rd & 0x1f) << 21 | (rt & 0x1f) << 16 | (0 & 0xffff);
-  i2 = OPC_STL | (rd & 0x1f) << 21 | (TCG_AREG0 & 0x1f) << 16 |
-       (offset & 0xffff);
-  write_insn_pair((uintptr_t *)jmp, i1, i2);
-  jmp += 8;
+    /* Third pair: load low 16 bits + store to stack */
+    i1 = OPC_LDI | (rd & 0x1f) << 21 | (rd & 0x1f) << 16 | (comp->l0 & 0xffff);
+    //i2 = OPC_STL | (rd & 0x1f) << 21 | (rt & 0x1f) << 16 | (0 & 0xffff);
+    i2 = OPC_STL | (rd & 0x1f) << 21 | (TCG_AREG0 & 0x1f) << 16 | (offset & 0xffff);
+    write_insn_pair((uintptr_t *)jmp, i1, i2);
+    jmp += 8;
 
-  return jmp - jmp_addr; /* total bytes written */
+    return jmp - jmp_addr;  /* total bytes written */
 }
 
-/* Patch pre-translate based return path prediction (pbrp) */
-void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb) {
-  target_ulong gpc = tb->next_pc;
-  uintptr_t hpc = (uintptr_t)next_tb->tc.ptr;
+/* Patch jump-to-return-address (refactored) */
+void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb)
+{
+    target_ulong gpc = tb->next_pc;
+    uintptr_t    hpc = (uintptr_t)next_tb->tc.ptr;
 
-  patch_addresses_t addrs = get_patch_addresses(tb);
+    patch_addresses_t addrs = get_patch_addresses(tb);
 
-  size_t gpc_offset = offsetof(CPUX86State, gpc);
-  target_components_t comp = decompose_target_address(gpc);
-  size_t code_len = generate_patch_code(addrs.jmp_rw, &comp, gpc_offset);
-  size_t hpc_offset = offsetof(CPUX86State, hpc);
-  comp = decompose_target_address(hpc);
-  code_len += generate_patch_code(addrs.jmp_rw + code_len, &comp, hpc_offset);
+    size_t gpc_offset = offsetof(CPUX86State, gpc);
+    target_components_t comp = decompose_target_address(gpc);
+    size_t code_len = generate_patch_code(addrs.jmp_rw, &comp, gpc_offset);
+    size_t hpc_offset = offsetof(CPUX86State, hpc);
+    comp = decompose_target_address(hpc);
+    code_len += generate_patch_code(addrs.jmp_rw + code_len, &comp, hpc_offset);
 
-  flush_idcache_range(addrs.jmp_rx, addrs.jmp_rw, code_len);
+    flush_idcache_range(addrs.jmp_rx, addrs.jmp_rw, code_len);
 }
 #endif
 
@@ -2910,23 +2910,80 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
             if ((uintptr_t)s->code_ptr & 7) {
                 tcg_out32(s, OPC_NOP);
             }
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+            if (s->tb_next_pc) {
+                *(s->pbrp_patch_offset) = tcg_current_code_size(s);
+                tcg_out32(s, OPC_NOP);
+                tcg_out32(s, OPC_NOP);
+                tcg_out32(s, OPC_NOP);
+                tcg_out32(s, OPC_NOP);
+                tcg_out32(s, OPC_NOP);
+                tcg_out32(s, OPC_NOP);
+                tcg_out32(s, OPC_NOP);
+                tcg_out32(s, OPC_NOP);
+                tcg_out32(s, OPC_NOP);
+                tcg_out32(s, OPC_NOP);
+                tcg_out32(s, OPC_NOP);
+                tcg_out32(s, OPC_NOP);
+                 /* tcg_out32(s, OPC_NOP); 12 times nop */
+            }
             s->tb_jmp_insn_offset[a0] = tcg_current_code_size(s);
             tcg_out32(s, OPC_NOP);
             tcg_out32(s, OPC_NOP);
             tcg_out32(s, OPC_NOP);
-            tcg_out32(s, OPC_NOP);//total 2 nop for tb_target
+            tcg_out32(s, OPC_NOP);
+#else
+            s->tb_jmp_insn_offset[a0] = tcg_current_code_size(s);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+#endif
         } else {
             /* !TCG_TARGET_HAS_direct_jump */
             tcg_debug_assert(s->tb_jmp_target_addr != NULL);
-	    tcg_out_ld(s, TCG_TYPE_PTR, TCG_REG_TMP, TCG_REG_ZERO, (uintptr_t)(s->tb_jmp_target_addr + a0));
+            tcg_out_ld(s, TCG_TYPE_PTR, TCG_REG_TMP, TCG_REG_ZERO, (uintptr_t)(s->tb_jmp_target_addr + a0));
         }
         tcg_out_insn_jump(s, OPC_JMP, TCG_REG_ZERO, TCG_REG_TMP, noPara);
         set_jmp_reset_offset(s, a0);
         break;
 
     case INDEX_op_goto_ptr:
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+        if (s->tb_next_pc) {
+            *(s->pbrp_patch_offset) = (uintptr_t)tcg_current_code_size(s);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            tcg_out32(s, OPC_NOP);
+            /* tcg_out32(s, OPC_NOP); 12 times nop */
+            tcg_out_insn_jump(s, OPC_JMP, TCG_REG_ZERO, a0, noPara);
+        } else {
+            tcg_out_insn_jump(s, OPC_JMP, TCG_REG_ZERO, a0, noPara);
+        }
+#else
         tcg_out_insn_jump(s, OPC_JMP, TCG_REG_ZERO, a0, noPara);
+#endif
         break;
+
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+    case INDEX_op_ret:
+        tcg_out_insn_ldst(s, OPC_LDL, TCG_REG_TMP,  TCG_AREG0, offsetof(CPUX86State, gpc));
+        tcg_out_insn_ldst(s, OPC_LDL, TCG_REG_TMP2,  TCG_AREG0, offsetof(CPUX86State, eip));
+        tcg_out_insn_simpleReg(s, OPC_SUBL, TCG_REG_TMP, TCG_REG_TMP, TCG_REG_TMP2);
+        tcg_out_insn_br(s, OPC_BNE, TCG_REG_TMP, 2);
+        tcg_out_insn_ldst(s, OPC_LDL, TCG_REG_RA,  TCG_AREG0, offsetof(CPUX86State, hpc));
+        tcg_out_insn_jump(s, OPC_RET, TCG_REG_ZERO, TCG_REG_RA, noPara);
+        break;
+#endif
 
     case INDEX_op_br:
         tcg_out_goto_label(s, arg_label(a0));
@@ -3543,6 +3600,9 @@ static TCGConstraintSetIndex tcg_target_op_def(TCGOpcode op)
     case INDEX_op_ldih:
         return C_O1_I2(r, r, rT);
     case INDEX_op_goto_ptr:
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+    case INDEX_op_ret:
+#endif
         return C_O0_I1(r);
 
     case INDEX_op_ld8u_i32:

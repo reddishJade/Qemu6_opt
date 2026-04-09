@@ -131,7 +131,7 @@ typedef enum {
 /* optional instructions */
 void tb_target_set_jmp_target(uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
-void patch_jrra(TranslationBlock *tb, TranslationBlock *next_tb);
+void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb);
 #endif
 #ifdef CONFIG_SOFTMMU
 #define TCG_TARGET_NEED_LDST_LABELS

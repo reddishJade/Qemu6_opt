@@ -3304,9 +3304,7 @@ void liveness_pass_1(TCGContext *s)
             break;
         }
         op->life = arg_life;
-#if !defined(CONFIG_LDSTOFFSET_OPT) && defined(__sw_64__)
-    }
-#else
+#if defined(CONFIG_LDSTOFFSET_OPT) && defined(__sw_64__)
         if(!is_remove){
             switch (opc) {
                 case INDEX_op_mov_i64:
@@ -3373,8 +3371,8 @@ void liveness_pass_1(TCGContext *s)
                     break;
             }
         }
-    }
 #endif
+    }
 }
 
 /* Liveness analysis: Convert indirect regs to direct temporaries.  */
