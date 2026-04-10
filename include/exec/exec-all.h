@@ -491,9 +491,11 @@ struct TranslationBlock {
 #define TB_JMP_RESET_OFFSET_INVALID 0xffff /* indicates no jump generated */
     uintptr_t jmp_target_arg[2];  /* target address or offset */
 
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
-    /* Return optimization chain: guest target PC.  */
+#if defined(CONFIG_PRETR_OPT) && defined(__sw_64__)
+    /* Pre-Translate optimization chain: guest target PC.  */
     target_ulong next_pc;
+#endif
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
     /* Host patch offset (from tb->tc.ptr) for pbrp chaining.  */
     uintptr_t jmp_to_next_offset;
 #endif

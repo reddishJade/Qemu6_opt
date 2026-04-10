@@ -360,8 +360,9 @@ debug="no"
 func_opt="no"
 inst_opt="no"
 reg_opt="no"
+pretr_opt="no"
+pretr_log="no"
 ret_opt="no"
-ret_opt_log="no"
 tcg_stats="no"
 native_libs="no"
 native_libs_load_debug="no"
@@ -1060,13 +1061,17 @@ for opt do
   ;;
   --disable-reg-opt) reg_opt="no"
   ;;
+  --enable-pretr-opt) pretr_opt="yes"
+  ;;
+  --disable-pretr-opt) pretr_opt="no"
+  ;;
+  --enable-pretr-log) pretr_log="yes"
+  ;;
+  --disable-pretr-log) pretr_log="no"
+  ;;
   --enable-ret-opt) ret_opt="yes"
   ;;
   --disable-ret-opt) ret_opt="no"
-  ;;
-  --enable-ret-opt-log) ret_opt_log="yes"
-  ;;
-  --disable-ret-opt-log) ret_opt_log="no"
   ;;
   --enable-tcg-stats) tcg_stats="yes"
   ;;
@@ -5568,12 +5573,16 @@ fi
 if test "$reg_opt" = "yes" ; then
   echo "CONFIG_REG_OPT=y" >> $config_host_mak
 fi
-if test "$ret_opt_log" = "yes" ; then
-    ret_opt="yes"
-    echo "CONFIG_RET_OPT_LOG=y" >> $config_host_mak
+if test "$pretr_log" = "yes" ; then
+    pretr_opt="yes"
+    echo "CONFIG_PRETR_LOG=y" >> $config_host_mak
 fi
 if test "$ret_opt" = "yes" ; then
+    pretr_opt="yes"
     echo "CONFIG_RET_OPT=y" >> $config_host_mak
+fi
+if test "$pretr_opt" = "yes" ; then
+  echo "CONFIG_PRETR_OPT=y" >> $config_host_mak
 fi
 if test "$tcg_stats" = "yes" ; then
   echo "CONFIG_TCG_STATS=y" >> $config_host_mak
