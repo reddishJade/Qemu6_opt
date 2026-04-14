@@ -103,8 +103,6 @@ typedef struct Libraris {
  * 全局变量
  *============================================================================*/
 
-extern __thread int is_plt_stub;
-
 #if defined(CONFIG_NATIVE_LIBS_CALL_DEBUG)
 extern char native_libs_write_path[256];
 #endif

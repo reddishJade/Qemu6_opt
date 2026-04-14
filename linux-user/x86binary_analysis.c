@@ -29,7 +29,6 @@
  *============================================================================*/
 
 static GHashTable *global_plt_table = NULL;
-__thread int is_plt_stub = 0;
 
 typedef struct LoadedInodeKey {
   dev_t dev;

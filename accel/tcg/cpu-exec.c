@@ -424,26 +424,27 @@ static inline void tb_add_jump(TranslationBlock *tb, int n,
 #if defined(CONFIG_PRETR_OPT) && defined(__sw_64__)
 static TranslationBlock *get_next_tb(TranslationBlock *tb, CPUState *cpu,
                                      target_ulong cs_base, uint32_t flags,
-                                     uint32_t cflags, bool *was_hit) {
-  TranslationBlock *n;
-  n = tb_lookup(cpu, tb->next_pc, cs_base, flags, cflags);
-  if (!n) {
-    if (was_hit) {
-      *was_hit = false;
-    }
-    n = tb_gen_code(cpu, tb->next_pc, cs_base, flags, cflags);
+                                     uint32_t cflags, bool *was_hit)
+{
+    TranslationBlock *n;
+    n = tb_lookup(cpu, tb->next_pc, cs_base, flags, cflags);
+    if (!n) {
+        if (was_hit) {
+            *was_hit = false;
+        }
+        n = tb_gen_code(cpu, tb->next_pc, cs_base, flags, cflags);
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
-    TCG_STAT_GEN_INC(tb_gen_count);
+        TCG_STAT_GEN_INC(tb_gen_count);
 #if defined(CONFIG_PRETR_LOG)
-    TCG_STAT_GEN_INC(tb_pre_translate_count);
+        TCG_STAT_GEN_INC(tb_pre_translate_count);
 #endif
 #endif
-  } else {
-    if (was_hit) {
-      *was_hit = true;
+    } else {
+        if (was_hit) {
+            *was_hit = true;
+        }
     }
-  }
-  return n;
+    return n;
 }
 
 /*
@@ -470,52 +471,52 @@ static TranslationBlock *get_next_tb(TranslationBlock *tb, CPUState *cpu,
  * this call)
  */
 static void pre_translate(TranslationBlock *tb, CPUState *cpu,
-                          target_ulong cs_base, uint32_t flags,
-                          uint32_t cflags) {
-  TranslationBlock *next = NULL;
-  TranslationBlock *curr = tb;
-  uint64_t depth = 0;
+                          target_ulong cs_base, uint32_t flags, uint32_t cflags)
+{
+    TranslationBlock *next = NULL;
+    TranslationBlock *curr = tb;
+    uint64_t depth = 0;
 #if defined(CONFIG_TCG_STATS) && defined(CONFIG_PRETR_LOG) && defined(__sw_64__)
-  uint64_t hits = 0;
+    uint64_t hits = 0;
 #endif
 
-  while (curr && curr->next_pc && depth < PRE_TRANSLATE_MAX_DEPTH) {
+    while (curr && curr->next_pc && depth < PRE_TRANSLATE_MAX_DEPTH) {
 #if defined(CONFIG_TCG_STATS) && defined(CONFIG_PRETR_LOG) && defined(__sw_64__)
-    bool was_hit = false;
-    next = get_next_tb(curr, cpu, cs_base, flags, cflags, &was_hit);
+        bool was_hit = false;
+        next = get_next_tb(curr, cpu, cs_base, flags, cflags, &was_hit);
 #else
-    next = get_next_tb(curr, cpu, cs_base, flags, cflags, NULL);
+        next = get_next_tb(curr, cpu, cs_base, flags, cflags, NULL);
 #endif
-    if (!next) {
-      break;
-    }
+        if (!next) {
+            break;
+        }
 
-    depth++;
+        depth++;
 #if defined(CONFIG_TCG_STATS) && defined(CONFIG_PRETR_LOG) && defined(__sw_64__)
-    if (was_hit) {
-      hits++;
-    }
+        if (was_hit) {
+            hits++;
+        }
 #endif
 
-    qatomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(curr->next_pc)],
-                next);
+        qatomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(curr->next_pc)],
+                    next);
 
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
-    if (!qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {
-      patch_pbrp(curr, next);
-    }
+        if (!qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {
+            patch_pbrp(curr, next);
+        }
 #endif
 
-    curr = next;
-  }
+        curr = next;
+    }
 
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
-  TCG_STAT_DEPTH_INC(pre_translate_calls);
-  TCG_STAT_DEPTH_ADD(pre_translate_depth_sum, depth);
-  TCG_STAT_DEPTH_MAX(pre_translate_depth_max, depth);
-  TCG_STAT_DEPTH_ADD(pre_translate_lookup_hit, hits);
-  TCG_STAT_DEPTH_ADD(pre_translate_lookup_miss, depth - hits);
-  TCG_STAT_DEPTH_BUCKET(depth);
+    TCG_STAT_DEPTH_INC(pre_translate_calls);
+    TCG_STAT_DEPTH_ADD(pre_translate_depth_sum, depth);
+    TCG_STAT_DEPTH_MAX(pre_translate_depth_max, depth);
+    TCG_STAT_DEPTH_ADD(pre_translate_lookup_hit, hits);
+    TCG_STAT_DEPTH_ADD(pre_translate_lookup_miss, depth - hits);
+    TCG_STAT_DEPTH_BUCKET(depth);
 #endif
 }
 #endif
@@ -541,20 +542,21 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
 #endif
 
 #if defined(CONFIG_PRETR_OPT) && defined(__sw_64__)
-        if (tb->next_pc)
-        {
+        if (tb->next_pc) {
             pre_translate(tb, cpu, cs_base, flags, cflags);
         }
 #endif
 
         mmap_unlock();
+
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-        if (is_plt_stub == 1) {
+        if (tb_cflags(tb) & CF_PLT_STUB) {
             /* PLT_STUB TB: GOT is not yet resolved. This TB must be
              * ephemeral — skip tb_jmp_cache and tb_add_jump so the
              * next execution re-translates and discovers the resolved
-             * GOT, generating a permanent PLT_FUNCTION TB instead. */
-            is_plt_stub = 0;
+             * GOT, generating a permanent PLT_FUNCTION TB instead.
+             * tb_lookup()'s exact cflags match also makes this TB
+             * invisible to normal lookups (CF_PLT_STUB != 0). */
             return tb;
         }
 #endif
@@ -837,7 +839,7 @@ static inline void cpu_loop_exec_tb(CPUState *cpu, TranslationBlock *tb,
      * insns_left instructions in it.
      */
     if (!cpu->icount_extra && insns_left > 0 && insns_left < tb->icount)  {
-        cpu->cflags_next_tb = (tb->cflags & ~CF_COUNT_MASK) | insns_left;
+        cpu->cflags_next_tb = (tb->cflags & ~(CF_COUNT_MASK | CF_PLT_STUB)) | insns_left;
     }
 #endif
 }

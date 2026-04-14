@@ -63,10 +63,6 @@
 #include "hw/core/tcg-cpu-ops.h"
 #include "internal.h"
 
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-#include "x86binary_analysis.h"
-#endif
-
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
 #include "exec/tcg-stats.h"
 #endif
@@ -2125,16 +2121,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         tb_destroy(tb);
         return existing_tb;
     }
-#if (defined(CONFIG_INDIRECT_JUMP_OPT_PLT)) && defined(__sw_64__)
-    // TODO: Replace is_plt_stub global coupling with a frontend-native DISAS_NO_CACHE flag check
-    // NOTE: is_plt_stub is NOT reset here; cpu-exec.c reads it to skip
-    //       tb_jmp_cache and tb_add_jump for PLT_STUB TBs.
-    if (is_plt_stub != 1) { // gen_intermediate_code DISAS_PLT_STUB
-        tcg_tb_insert(tb);
-    }
-#else
     tcg_tb_insert(tb);
-#endif
     return tb;
  }
 
