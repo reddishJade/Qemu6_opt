@@ -548,6 +548,16 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
 #endif
 
         mmap_unlock();
+#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
+        if (is_plt_stub == 1) {
+            /* PLT_STUB TB: GOT is not yet resolved. This TB must be
+             * ephemeral — skip tb_jmp_cache and tb_add_jump so the
+             * next execution re-translates and discovers the resolved
+             * GOT, generating a permanent PLT_FUNCTION TB instead. */
+            is_plt_stub = 0;
+            return tb;
+        }
+#endif
         /* We add the TB in the virtual pc hash table for the fast lookup */
         qatomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)], tb);
     }
