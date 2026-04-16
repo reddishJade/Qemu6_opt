@@ -38,6 +38,47 @@
 #include "x86binary_analysis.h"
 #endif
 
+#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
+typedef struct X86PLTDecode {
+    uint64_t dynsym_addr;
+    uint64_t plt_begin_va;
+    bool unresolved;
+} X86PLTDecode;
+
+static bool x86_decode_plt_stub(uint64_t pc, X86PLTDecode *decode)
+{
+    uint32_t offset;
+    uint64_t got;
+
+    if (*(uint16_t *)(pc) == PLT_WITHOUT_CET) {
+        offset = *(uint32_t *)(pc + 2);
+        got = pc + 6 + (uint64_t)offset;
+        decode->dynsym_addr = *(uint64_t *)got;
+        decode->plt_begin_va = pc;
+        decode->unresolved = decode->dynsym_addr >= pc &&
+                             decode->dynsym_addr < pc + 16;
+        return true;
+    }
+
+    if (*(uint16_t *)(pc) == PLT_WITH_CET) {
+        if (*(uint8_t *)(pc + 2) == 0xf2) {
+            offset = *(uint32_t *)(pc + 3);
+            got = pc + 11 + (uint64_t)offset;
+        } else {
+            offset = *(uint32_t *)(pc + 2);
+            got = pc + 10 + (uint64_t)offset;
+        }
+        decode->dynsym_addr = *(uint64_t *)got;
+        decode->plt_begin_va = *(uint64_t *)(pc + 8);
+        decode->unresolved = decode->dynsym_addr >= decode->plt_begin_va &&
+                             decode->dynsym_addr < pc;
+        return true;
+    }
+
+    return false;
+}
+#endif
+
 #if defined(CONFIG_NATIVE_LIBS) && defined(__sw_64__)
 typedef void (*call_native_func)(CPUArchState *, uint64_t);
 static call_native_func gen_helper_call_native_lib_GPR[] = {
@@ -8263,68 +8304,17 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
     case 0xcc: /* int3 */
     {
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-        uint32_t offset = 0;
+        X86PLTDecode plt_decode;
         uint64_t pc = s->pc - 1;
-        uint64_t got = 0;
-        uint64_t dynsym_addr = 0;
 
-        if (*(uint16_t *)(pc) == PLT_WITHOUT_CET) // 0xCC 'P'
-        {
-            /*  plt table
-        => 0x555555555050 ff 25 a6 2f 00 00    jmp  *0x2fa6(%rip)
-           0x555555555056 68 01 00 00 00       push $0x1
-           0x55555555501b e9 d0 ff ff ff       jmp  3fcff0
-           #modifid:
-        => 0x555555555050 0xCC 'p' a6 2f 00 00 jmp  *0x2fa6(%rip)
-           0x555555555056 68 01 00 00 00       push $0x1
-           0x55555555501b e9 d0 ff ff ff       jmp  3fcff0
-        */
-            offset = *(uint32_t *)(pc + 2); // get 0x2fa6
-            got =
-                (uint64_t)pc + 6 + (uint64_t)offset; // 0x55555555505a + offset
-            dynsym_addr = *(uint64_t *)got;
-            if (dynsym_addr >= pc && dynsym_addr < pc + 16) {
+        if (x86_decode_plt_stub(pc, &plt_decode)) {
+            if (plt_decode.unresolved) {
                 s->base.tb->cflags |= CF_PLT_STUB;
-                gen_jmp_im(s, dynsym_addr - s->cs_base);
+                gen_jmp_im(s, plt_decode.dynsym_addr - s->cs_base);
                 gen_eob(s);
                 s->base.is_jmp = DISAS_NORETURN;
             } else {
-                // gen_jmp_im(s, dynsym_addr - s->cs_base);
-                // gen_eob(s);
-                gen_goto_tb(s, 0, dynsym_addr - s->cs_base);
-                s->base.is_jmp = DISAS_NORETURN;
-            }
-
-            break;
-        } else if (*(uint16_t *)(pc) == PLT_WITH_CET) {
-            /*  plt table
-        => 0x555555555050 f3 0f 1e fa   endbr64
-           0x555555555054 [f2] ff 25 a6 2f 00 00 jmp  *0x2fa6(%rip)
-           0x55555555505a[b] 66 0f 1f 44 00 00   nopw 0x0(%rax,%rax,1)
-           #modifid:
-        => 0x555555555050 0xCC 'E' [f2] a6 2f 00 00 xx
-           0x555555555058 plt_begin_va
-        */
-            if (*(uint8_t *)(pc + 2) == 0xf2) {
-                offset = *(uint32_t *)(pc + 3); // get 0x2fa6
-                got = (uint64_t)pc + 4 + 7 +
-                      (uint64_t)offset; // 0x55555555505a + offset
-            } else {
-                offset = *(uint32_t *)(pc + 2); // get 0x2fa6
-                got = (uint64_t)pc + 4 + 6 +
-                      (uint64_t)offset; // 0x55555555505a + offset
-            }
-            dynsym_addr = *(uint64_t *)got;
-            uint64_t plt_begin_va = *(uint64_t *)(pc + 8);
-            if (dynsym_addr >= plt_begin_va && dynsym_addr < pc) {
-                s->base.tb->cflags |= CF_PLT_STUB;
-                gen_jmp_im(s, dynsym_addr - s->cs_base);
-                gen_eob(s);
-                s->base.is_jmp = DISAS_NORETURN;
-            } else {
-                // gen_jmp_im(s, dynsym_addr - s->cs_base);
-                // gen_eob(s);
-                gen_goto_tb(s, 0, dynsym_addr - s->cs_base);
+                gen_goto_tb(s, 0, plt_decode.dynsym_addr - s->cs_base);
                 s->base.is_jmp = DISAS_NORETURN;
             }
 

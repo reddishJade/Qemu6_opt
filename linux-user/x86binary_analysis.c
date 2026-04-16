@@ -56,6 +56,8 @@ typedef struct AnalyzeStats {
   uint64_t total_ns;
   uint64_t dynsym_count;
   uint64_t rela_plt_count;
+  uint64_t plt_stub_patched;
+  uint64_t plt_stub_skipped;
 } AnalyzeStats;
 
 static AnalyzeStats analyze_stats;
@@ -80,7 +82,7 @@ __attribute__((destructor)) void x86binary_analysis_dump_stats(void) {
           "calls=%llu analyzed=%llu\n"
           "skips: fd=%llu fstat=%llu inode=%llu libname=%llu readlink=%llu\n"
           "time_ms: total=%.3f scan=%.3f dynsym=%.3f plt=%.3f save=%.3f\n"
-          "counts: dynsym=%llu rela_plt=%llu\n"
+          "counts: dynsym=%llu rela_plt=%llu plt_patched=%llu plt_skipped=%llu\n"
           "===============================\n",
           (unsigned long long)analyze_stats.calls,
           (unsigned long long)analyze_stats.analyzed_files,
@@ -95,7 +97,9 @@ __attribute__((destructor)) void x86binary_analysis_dump_stats(void) {
           (double)analyze_stats.plt_ns / 1000000.0,
           (double)analyze_stats.save_library_ns / 1000000.0,
           (unsigned long long)analyze_stats.dynsym_count,
-          (unsigned long long)analyze_stats.rela_plt_count);
+          (unsigned long long)analyze_stats.rela_plt_count,
+          (unsigned long long)analyze_stats.plt_stub_patched,
+          (unsigned long long)analyze_stats.plt_stub_skipped);
 }
 
 #define ANALYZE_STATS_ENABLED() true
@@ -679,6 +683,7 @@ static bool do_replace_plt_with_trap(gpointer key, gpointer value) {
   uint32_t offset;
 
   if (!plt_stub_matches_expected_layout(plt_stub_va, plt_value)) {
+    ANALYZE_STATS_DO(analyze_stats.plt_stub_skipped++;);
     return false;
   }
 
@@ -699,6 +704,7 @@ static bool do_replace_plt_with_trap(gpointer key, gpointer value) {
     *(uint16_t *)plt_stub_va = (uint16_t)PLT_WITHOUT_CET;
   }
 
+  ANALYZE_STATS_DO(analyze_stats.plt_stub_patched++;);
   return true;
 }
 
@@ -735,6 +741,7 @@ static void do_filter_invalid_plt_entry(gpointer key, gpointer value,
   if (plt_stub_matches_expected_layout(plt_stub_va, plt_value)) {
     g_hash_table_insert(valid_plt_table, key, value);
   } else {
+    ANALYZE_STATS_DO(analyze_stats.plt_stub_skipped++;);
     free_plt_value(plt_value);
   }
 }
