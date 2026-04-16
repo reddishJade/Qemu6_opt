@@ -2390,10 +2390,10 @@ static inline void gen_goto_tb(DisasContext *s, int tb_num, target_ulong eip)
 
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
 static inline void gen_ret(DisasContext *s, TCGv dest) {
-  gen_update_cc_op(s);
-  tcg_gen_ret(dest);
-  tcg_gen_lookup_and_goto_ptr();
-  s->base.is_jmp = DISAS_NORETURN;
+    gen_update_cc_op(s);
+    tcg_gen_ret(dest);
+    tcg_gen_lookup_and_goto_ptr();
+    s->base.is_jmp = DISAS_NORETURN;
 }
 #endif
 

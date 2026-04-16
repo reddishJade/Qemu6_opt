@@ -1967,6 +1967,19 @@ void tb_target_set_jmp_target(uintptr_t tc_ptr, uintptr_t jmp_rx, uintptr_t jmp_
 }
 
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+/*
+ * Number of NOP instructions reserved for a PBRP patch slot.
+ * Must match: 2 groups (gpc + hpc) x 6 insns each = 12.
+ */
+#define PBRP_NOP_SLOT_SIZE 12
+
+static inline void emit_pbrp_nop_slot(TCGContext *s)
+{
+    for (int i = 0; i < PBRP_NOP_SLOT_SIZE; i++) {
+        tcg_out32(s, OPC_NOP);
+    }
+}
+
 /* Address-calculation helpers */
 typedef struct {
     uintptr_t jmp_rx;  /* RX address to execute from */
@@ -2009,18 +2022,16 @@ static inline void write_insn_pair(uintptr_t *addr, tcg_insn_unit i1, tcg_insn_u
     qatomic_set((uint64_t *)addr, pair);
 }
 
-/* Patch-code generator */
+/* Patch-code generator: emits 6 insns (3 pairs) to construct a 48-bit
+ * value and store it at env + offset. */
 static size_t generate_patch_code(uintptr_t jmp_addr, const target_components_t *comp, size_t offset)
 {
     TCGReg rs  = TCG_REG_ZERO;
     TCGReg rd  = TCG_REG_TMP;
-    TCGReg rt  = TCG_REG_X10;
     uintptr_t jmp = jmp_addr;
     tcg_insn_unit i1, i2;
 
-    /* First pair: load ESP + load high 16 bits into rd */
-    // i1 = OPC_LDL | (rt & 0x1f) << 21 | (TCG_AREG0 & 0x1f) << 16 | (offset & 0xffff);
-    // i1 = OPC_ADDL_I | (TCG_AREG0 & 0x1f) << 21 | (offset & 0x1f) << 13 | (rt & 0x1f);
+    /* First pair: reserved NOP + load high 16 bits into rd */
     i1 = OPC_NOP;
     i2 = OPC_LDI | (rd & 0x1f) << 21 | (rs & 0x1f) << 16 | (comp->l2 & 0xffff);
     write_insn_pair((uintptr_t *)jmp, i1, i2);
@@ -2032,9 +2043,8 @@ static size_t generate_patch_code(uintptr_t jmp_addr, const target_components_t 
     write_insn_pair((uintptr_t *)jmp, i1, i2);
     jmp += 8;
 
-    /* Third pair: load low 16 bits + store to stack */
+    /* Third pair: load low 16 bits + store to env */
     i1 = OPC_LDI | (rd & 0x1f) << 21 | (rd & 0x1f) << 16 | (comp->l0 & 0xffff);
-    //i2 = OPC_STL | (rd & 0x1f) << 21 | (rt & 0x1f) << 16 | (0 & 0xffff);
     i2 = OPC_STL | (rd & 0x1f) << 21 | (TCG_AREG0 & 0x1f) << 16 | (offset & 0xffff);
     write_insn_pair((uintptr_t *)jmp, i1, i2);
     jmp += 8;
@@ -2042,13 +2052,26 @@ static size_t generate_patch_code(uintptr_t jmp_addr, const target_components_t 
     return jmp - jmp_addr;  /* total bytes written */
 }
 
-/* Patch jump-to-return-address (refactored) */
+/*
+ * Patch the PBRP NOP slot to load gpc/hpc into env.
+ *
+ * Called from pre_translate() with mmap_lock held.
+ */
 void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb)
 {
-    target_ulong gpc = tb->next_pc;
-    uintptr_t    hpc = (uintptr_t)next_tb->tc.ptr;
+    if (!tb->jmp_to_next_offset) {
+        return;  /* no PBRP slot reserved for this TB */
+    }
 
     patch_addresses_t addrs = get_patch_addresses(tb);
+
+    /* Skip if already patched (second insn is no longer NOP) */
+    if (*(uint32_t *)(addrs.jmp_rw + 4) != OPC_NOP) {
+        return;
+    }
+
+    target_ulong gpc = tb->next_pc;
+    uintptr_t    hpc = (uintptr_t)next_tb->tc.ptr;
 
     size_t gpc_offset = offsetof(CPUX86State, gpc);
     target_components_t comp = decompose_target_address(gpc);
@@ -2913,19 +2936,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
             if (s->tb_next_pc) {
                 *(s->pbrp_patch_offset) = tcg_current_code_size(s);
-                tcg_out32(s, OPC_NOP);
-                tcg_out32(s, OPC_NOP);
-                tcg_out32(s, OPC_NOP);
-                tcg_out32(s, OPC_NOP);
-                tcg_out32(s, OPC_NOP);
-                tcg_out32(s, OPC_NOP);
-                tcg_out32(s, OPC_NOP);
-                tcg_out32(s, OPC_NOP);
-                tcg_out32(s, OPC_NOP);
-                tcg_out32(s, OPC_NOP);
-                tcg_out32(s, OPC_NOP);
-                tcg_out32(s, OPC_NOP);
-                 /* tcg_out32(s, OPC_NOP); 12 times nop */
+                emit_pbrp_nop_slot(s);
             }
             s->tb_jmp_insn_offset[a0] = tcg_current_code_size(s);
             tcg_out32(s, OPC_NOP);
@@ -2952,26 +2963,10 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
         if (s->tb_next_pc) {
             *(s->pbrp_patch_offset) = (uintptr_t)tcg_current_code_size(s);
-            tcg_out32(s, OPC_NOP);
-            tcg_out32(s, OPC_NOP);
-            tcg_out32(s, OPC_NOP);
-            tcg_out32(s, OPC_NOP);
-            tcg_out32(s, OPC_NOP);
-            tcg_out32(s, OPC_NOP);
-            tcg_out32(s, OPC_NOP);
-            tcg_out32(s, OPC_NOP);
-            tcg_out32(s, OPC_NOP);
-            tcg_out32(s, OPC_NOP);
-            tcg_out32(s, OPC_NOP);
-            tcg_out32(s, OPC_NOP);
-            /* tcg_out32(s, OPC_NOP); 12 times nop */
-            tcg_out_insn_jump(s, OPC_JMP, TCG_REG_ZERO, a0, noPara);
-        } else {
-            tcg_out_insn_jump(s, OPC_JMP, TCG_REG_ZERO, a0, noPara);
+            emit_pbrp_nop_slot(s);
         }
-#else
-        tcg_out_insn_jump(s, OPC_JMP, TCG_REG_ZERO, a0, noPara);
 #endif
+        tcg_out_insn_jump(s, OPC_JMP, TCG_REG_ZERO, a0, noPara);
         break;
 
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
@@ -2979,6 +2974,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
         tcg_out_insn_ldst(s, OPC_LDL, TCG_REG_TMP,  TCG_AREG0, offsetof(CPUX86State, gpc));
         tcg_out_insn_ldst(s, OPC_LDL, TCG_REG_TMP2,  TCG_AREG0, offsetof(CPUX86State, eip));
         tcg_out_insn_simpleReg(s, OPC_SUBL, TCG_REG_TMP, TCG_REG_TMP, TCG_REG_TMP2);
+        /* Skip next 2 insns (LDL hpc + RET) if gpc != eip */
         tcg_out_insn_br(s, OPC_BNE, TCG_REG_TMP, 2);
         tcg_out_insn_ldst(s, OPC_LDL, TCG_REG_RA,  TCG_AREG0, offsetof(CPUX86State, hpc));
         tcg_out_insn_jump(s, OPC_RET, TCG_REG_ZERO, TCG_REG_RA, noPara);

@@ -2742,10 +2742,9 @@ void tcg_gen_lookup_and_goto_ptr(void)
 
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
 void tcg_gen_ret(TCGv dest) {
-  if (TCG_TARGET_HAS_ret && !qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {
-    tcg_gen_op1(INDEX_op_ret, tcgv_i64_arg(dest));
-  } else {
-  }
+    if (TCG_TARGET_HAS_ret && !qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {
+        tcg_gen_op1(INDEX_op_ret, tcgv_i64_arg(dest));
+    }
 }
 #endif
 
