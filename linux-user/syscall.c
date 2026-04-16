@@ -10399,7 +10399,10 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
 #ifdef __NR_exit_group
         /* new thread calls */
     case TARGET_NR_exit_group:
-#if defined(CONFIG_NATIVE_LIBS) || defined(CONFIG_NATIVE_LIBS_LOAD_DEBUG) || defined(CONFIG_NATIVE_LIBS_CALL_DEBUG)
+#if defined(CONFIG_NATIVE_LIBS) || defined(CONFIG_NATIVE_LIBS_LOAD_DEBUG) || \
+    defined(CONFIG_NATIVE_LIBS_CALL_DEBUG) || \
+    defined(CONFIG_INDIRECT_JUMP_OPT_PLT) || \
+    defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG)
         free_libentries();
 #endif
         preexit_cleanup(cpu_env, arg1);

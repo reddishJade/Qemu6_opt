@@ -510,11 +510,6 @@ static int is_inode_already_loaded(dev_t dev, ino_t ino) {
   return loaded_inodes != NULL && g_hash_table_contains(loaded_inodes, &key);
 }
 
-static int is_library_already_loaded(const char *libname) {
-  return loaded_library_names != NULL &&
-         g_hash_table_contains(loaded_library_names, libname);
-}
-
 static inline void save_function(uintptr_t targetaddr, const char *libname,
                                  const char *funcname,
                                  sw64_method_item *method) {
@@ -659,11 +654,33 @@ static inline void replace_x86func_with_sw64Bridge(struct Libraris *lib,
  *============================================================================*/
 
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-static void do_replace_plt_with_trap(gpointer key, gpointer value,
-                                     gpointer user_data) {
+#define PLT_ENTRY_SIZE 16
+
+static bool plt_stub_matches_expected_layout(uintptr_t plt_stub_va,
+                                             const PLT_HashValue *plt_value) {
+  if (plt_value->with_cet) {
+    if (*(uint32_t *)plt_stub_va != 0xfa1e0ff3) {
+      return false;
+    }
+
+    if (*(uint8_t *)(plt_stub_va + 4) == 0xf2) {
+      return *(uint16_t *)(plt_stub_va + 5) == 0x25ff;
+    }
+
+    return *(uint16_t *)(plt_stub_va + 4) == 0x25ff;
+  }
+
+  return *(uint16_t *)plt_stub_va == 0x25ff;
+}
+
+static bool do_replace_plt_with_trap(gpointer key, gpointer value) {
   uintptr_t plt_stub_va = (uintptr_t)key;
   PLT_HashValue *plt_value = (PLT_HashValue *)value;
   uint32_t offset;
+
+  if (!plt_stub_matches_expected_layout(plt_stub_va, plt_value)) {
+    return false;
+  }
 
   if (plt_value->with_cet) {
     /* CET: endbr64 + jmp -> 0xCC 'E' + disp32 + plt_begin_va */
@@ -681,14 +698,59 @@ static void do_replace_plt_with_trap(gpointer key, gpointer value,
     /* 非CET: jmp -> 0xCC 'P' + disp32 */
     *(uint16_t *)plt_stub_va = (uint16_t)PLT_WITHOUT_CET;
   }
+
+  return true;
 }
 
-static inline void replace_plt_with_trap(GHashTable *plt_table,
-                                         abi_long start_addr,
-                                         abi_long end_addr) {
+typedef struct PLTPatchRange {
+  uintptr_t min_stub;
+  uintptr_t max_stub;
+} PLTPatchRange;
+
+static void do_collect_plt_patch_range(gpointer key, gpointer value,
+                                       gpointer user_data) {
+  uintptr_t plt_stub_va = (uintptr_t)key;
+  PLT_HashValue *plt_value = (PLT_HashValue *)value;
+  PLTPatchRange *range = user_data;
+
+  if (!plt_stub_matches_expected_layout(plt_stub_va, plt_value)) {
+    return;
+  }
+
+  if (range->min_stub == 0 || plt_stub_va < range->min_stub) {
+    range->min_stub = plt_stub_va;
+  }
+
+  if (plt_stub_va > range->max_stub) {
+    range->max_stub = plt_stub_va;
+  }
+}
+
+static void do_filter_invalid_plt_entry(gpointer key, gpointer value,
+                                        gpointer user_data) {
+  GHashTable *valid_plt_table = user_data;
+  uintptr_t plt_stub_va = (uintptr_t)key;
+  PLT_HashValue *plt_value = (PLT_HashValue *)value;
+
+  if (plt_stub_matches_expected_layout(plt_stub_va, plt_value)) {
+    g_hash_table_insert(valid_plt_table, key, value);
+  } else {
+    free_plt_value(plt_value);
+  }
+}
+
+static inline void replace_plt_with_trap(GHashTable *plt_table) {
   size_t page_size = sysconf(_SC_PAGESIZE);
-  uintptr_t aligned_start = start_addr & ~(page_size - 1);
-  uintptr_t aligned_end = (end_addr + page_size - 1) & ~(page_size - 1);
+  PLTPatchRange range = {0};
+
+  g_hash_table_foreach(plt_table, do_collect_plt_patch_range, &range);
+  if (range.min_stub == 0) {
+    return;
+  }
+
+  uintptr_t aligned_start = range.min_stub & ~(page_size - 1);
+  uintptr_t aligned_end =
+      ((range.max_stub + PLT_ENTRY_SIZE) + page_size - 1) & ~(page_size - 1);
   size_t length = aligned_end - aligned_start;
 
   int original_prot = PROT_READ | PROT_EXEC;
@@ -698,7 +760,16 @@ static inline void replace_plt_with_trap(GHashTable *plt_table,
     exit(-1);
   }
 
-  g_hash_table_foreach(plt_table, do_replace_plt_with_trap, NULL);
+  GHashTableIter iter;
+  gpointer key;
+  gpointer value;
+  g_hash_table_iter_init(&iter, plt_table);
+  while (g_hash_table_iter_next(&iter, &key, &value)) {
+    if (!do_replace_plt_with_trap(key, value)) {
+      g_hash_table_iter_remove(&iter);
+      free_plt_value(value);
+    }
+  }
 
   if (mprotect((void *)aligned_start, length, original_prot) == -1) {
     perror("Restore mprotect failed");
@@ -857,8 +928,18 @@ static void do_plt_opt_analyze(int fd, Elf *elf, Elf_Scn *scn_rela_plt,
 #endif
 
   if (current_plt_not_empty) {
-    replace_plt_with_trap(current_plt_table, start, start + len);
-    g_hash_table_foreach(current_plt_table, do_plt_merge_to_global, NULL);
+    GHashTable *valid_plt_table =
+        g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, NULL);
+
+    g_hash_table_foreach(current_plt_table, do_filter_invalid_plt_entry,
+                         valid_plt_table);
+    g_hash_table_destroy(current_plt_table);
+    current_plt_table = valid_plt_table;
+
+    if (g_hash_table_size(current_plt_table) > 0) {
+      replace_plt_with_trap(current_plt_table);
+      g_hash_table_foreach(current_plt_table, do_plt_merge_to_global, NULL);
+    }
   }
   g_hash_table_destroy(current_plt_table);
 }
@@ -1075,14 +1156,6 @@ void analyze_x86binary(int fd, abi_ulong start, abi_ulong len,
     char *dot = strchr(libname, '.');
     if (dot)
       *dot = '\0';
-
-    if (is_library_already_loaded(libname)) {
-      ANALYZE_STATS_DO(analyze_stats.skipped_name++;);
-      save_library(libname, start, start + len, st.st_dev, st.st_ino);
-      ANALYZE_STATS_DO(analyze_stats.total_ns +=
-                       ANALYZE_CLOCK_NOW_NS() - analyze_begin_ns;);
-      return;
-    }
 
     do_analyze_x86binary(libname, fd, start, len, fd_offset, st.st_dev,
                          st.st_ino);
