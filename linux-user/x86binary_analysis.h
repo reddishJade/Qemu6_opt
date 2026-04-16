@@ -25,6 +25,17 @@
 
 #define PLT_WITHOUT_CET 0x50CC /* 'P' 0xCC - 非CET模式 (小端序) */
 #define PLT_WITH_CET 0x45CC    /* 'E' 0xCC - CET模式 (小端序) */
+#define PLT_ENTRY_SIZE 16
+
+/*============================================================================
+ * PLT trap 协议
+ *============================================================================*/
+
+typedef struct X86PLTDecode {
+  uint64_t dynsym_addr;
+  uint64_t plt_begin_va;
+  bool unresolved;
+} X86PLTDecode;
 
 /*============================================================================
  * 参数传递规则
@@ -114,8 +125,23 @@ extern char native_libs_write_path[256];
 void free_libentries(void);
 void analyze_x86binary(int fd, abi_ulong start, abi_ulong len,
                        abi_ulong fd_offset);
+bool plt_stub_matches_expected_layout(uintptr_t plt_stub_va,
+                                      const PLT_HashValue *plt_value);
+bool x86_encode_plt_trap(uintptr_t plt_stub_va, const PLT_HashValue *plt_value);
+bool x86_decode_plt_stub(uint64_t pc, X86PLTDecode *decode);
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
 void x86binary_analysis_dump_stats(void);
+void x86binary_analysis_note_plt_stub_patched(void);
+void x86binary_analysis_note_plt_stub_skipped(void);
+void x86binary_analysis_note_plt_trap_hit(void);
+void x86binary_analysis_note_plt_trap_unresolved(void);
+void x86binary_analysis_note_plt_trap_resolved(void);
+#else
+static inline void x86binary_analysis_note_plt_stub_patched(void) {}
+static inline void x86binary_analysis_note_plt_stub_skipped(void) {}
+static inline void x86binary_analysis_note_plt_trap_hit(void) {}
+static inline void x86binary_analysis_note_plt_trap_unresolved(void) {}
+static inline void x86binary_analysis_note_plt_trap_resolved(void) {}
 #endif
 void native_libs_lock(void);
 void native_libs_unlock(void);

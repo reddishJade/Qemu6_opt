@@ -58,6 +58,9 @@ typedef struct AnalyzeStats {
   uint64_t rela_plt_count;
   uint64_t plt_stub_patched;
   uint64_t plt_stub_skipped;
+  uint64_t plt_trap_hits;
+  uint64_t plt_trap_unresolved;
+  uint64_t plt_trap_resolved;
 } AnalyzeStats;
 
 static AnalyzeStats analyze_stats;
@@ -68,6 +71,26 @@ static inline uint64_t analyze_clock_now_ns(void) {
 
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+
+void x86binary_analysis_note_plt_stub_patched(void) {
+  analyze_stats.plt_stub_patched++;
+}
+
+void x86binary_analysis_note_plt_stub_skipped(void) {
+  analyze_stats.plt_stub_skipped++;
+}
+
+void x86binary_analysis_note_plt_trap_hit(void) {
+  analyze_stats.plt_trap_hits++;
+}
+
+void x86binary_analysis_note_plt_trap_unresolved(void) {
+  analyze_stats.plt_trap_unresolved++;
+}
+
+void x86binary_analysis_note_plt_trap_resolved(void) {
+  analyze_stats.plt_trap_resolved++;
 }
 
 __attribute__((destructor)) void x86binary_analysis_dump_stats(void) {
@@ -83,6 +106,7 @@ __attribute__((destructor)) void x86binary_analysis_dump_stats(void) {
           "skips: fd=%llu fstat=%llu inode=%llu libname=%llu readlink=%llu\n"
           "time_ms: total=%.3f scan=%.3f dynsym=%.3f plt=%.3f save=%.3f\n"
           "counts: dynsym=%llu rela_plt=%llu plt_patched=%llu plt_skipped=%llu\n"
+          "runtime: trap_hits=%llu unresolved=%llu resolved=%llu\n"
           "===============================\n",
           (unsigned long long)analyze_stats.calls,
           (unsigned long long)analyze_stats.analyzed_files,
@@ -99,7 +123,10 @@ __attribute__((destructor)) void x86binary_analysis_dump_stats(void) {
           (unsigned long long)analyze_stats.dynsym_count,
           (unsigned long long)analyze_stats.rela_plt_count,
           (unsigned long long)analyze_stats.plt_stub_patched,
-          (unsigned long long)analyze_stats.plt_stub_skipped);
+          (unsigned long long)analyze_stats.plt_stub_skipped,
+          (unsigned long long)analyze_stats.plt_trap_hits,
+          (unsigned long long)analyze_stats.plt_trap_unresolved,
+          (unsigned long long)analyze_stats.plt_trap_resolved);
 }
 
 #define ANALYZE_STATS_ENABLED() true
@@ -658,10 +685,8 @@ static inline void replace_x86func_with_sw64Bridge(struct Libraris *lib,
  *============================================================================*/
 
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-#define PLT_ENTRY_SIZE 16
-
-static bool plt_stub_matches_expected_layout(uintptr_t plt_stub_va,
-                                             const PLT_HashValue *plt_value) {
+bool plt_stub_matches_expected_layout(uintptr_t plt_stub_va,
+                                      const PLT_HashValue *plt_value) {
   if (plt_value->with_cet) {
     if (*(uint32_t *)plt_stub_va != 0xfa1e0ff3) {
       return false;
@@ -677,13 +702,11 @@ static bool plt_stub_matches_expected_layout(uintptr_t plt_stub_va,
   return *(uint16_t *)plt_stub_va == 0x25ff;
 }
 
-static bool do_replace_plt_with_trap(gpointer key, gpointer value) {
-  uintptr_t plt_stub_va = (uintptr_t)key;
-  PLT_HashValue *plt_value = (PLT_HashValue *)value;
+bool x86_encode_plt_trap(uintptr_t plt_stub_va, const PLT_HashValue *plt_value) {
   uint32_t offset;
 
   if (!plt_stub_matches_expected_layout(plt_stub_va, plt_value)) {
-    ANALYZE_STATS_DO(analyze_stats.plt_stub_skipped++;);
+    ANALYZE_STATS_DO(x86binary_analysis_note_plt_stub_skipped(););
     return false;
   }
 
@@ -704,7 +727,7 @@ static bool do_replace_plt_with_trap(gpointer key, gpointer value) {
     *(uint16_t *)plt_stub_va = (uint16_t)PLT_WITHOUT_CET;
   }
 
-  ANALYZE_STATS_DO(analyze_stats.plt_stub_patched++;);
+  ANALYZE_STATS_DO(x86binary_analysis_note_plt_stub_patched(););
   return true;
 }
 
@@ -741,7 +764,7 @@ static void do_filter_invalid_plt_entry(gpointer key, gpointer value,
   if (plt_stub_matches_expected_layout(plt_stub_va, plt_value)) {
     g_hash_table_insert(valid_plt_table, key, value);
   } else {
-    ANALYZE_STATS_DO(analyze_stats.plt_stub_skipped++;);
+    ANALYZE_STATS_DO(x86binary_analysis_note_plt_stub_skipped(););
     free_plt_value(plt_value);
   }
 }
@@ -772,7 +795,7 @@ static inline void replace_plt_with_trap(GHashTable *plt_table) {
   gpointer value;
   g_hash_table_iter_init(&iter, plt_table);
   while (g_hash_table_iter_next(&iter, &key, &value)) {
-    if (!do_replace_plt_with_trap(key, value)) {
+    if (!x86_encode_plt_trap((uintptr_t)key, (const PLT_HashValue *)value)) {
       g_hash_table_iter_remove(&iter);
       free_plt_value(value);
     }
@@ -782,6 +805,38 @@ static inline void replace_plt_with_trap(GHashTable *plt_table) {
     perror("Restore mprotect failed");
     exit(-1);
   }
+}
+
+bool x86_decode_plt_stub(uint64_t pc, X86PLTDecode *decode) {
+  uint32_t offset;
+  uint64_t got;
+
+  if (*(uint16_t *)(pc) == PLT_WITHOUT_CET) {
+    offset = *(uint32_t *)(pc + 2);
+    got = pc + 6 + (uint64_t)offset;
+    decode->dynsym_addr = *(uint64_t *)got;
+    decode->plt_begin_va = pc;
+    decode->unresolved = decode->dynsym_addr >= pc &&
+                         decode->dynsym_addr < pc + PLT_ENTRY_SIZE;
+    return true;
+  }
+
+  if (*(uint16_t *)(pc) == PLT_WITH_CET) {
+    if (*(uint8_t *)(pc + 2) == 0xf2) {
+      offset = *(uint32_t *)(pc + 3);
+      got = pc + 11 + (uint64_t)offset;
+    } else {
+      offset = *(uint32_t *)(pc + 2);
+      got = pc + 10 + (uint64_t)offset;
+    }
+    decode->dynsym_addr = *(uint64_t *)got;
+    decode->plt_begin_va = *(uint64_t *)(pc + 8);
+    decode->unresolved = decode->dynsym_addr >= decode->plt_begin_va &&
+                         decode->dynsym_addr < pc;
+    return true;
+  }
+
+  return false;
 }
 #endif
 

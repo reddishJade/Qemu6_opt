@@ -39,44 +39,6 @@
 #endif
 
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-typedef struct X86PLTDecode {
-    uint64_t dynsym_addr;
-    uint64_t plt_begin_va;
-    bool unresolved;
-} X86PLTDecode;
-
-static bool x86_decode_plt_stub(uint64_t pc, X86PLTDecode *decode)
-{
-    uint32_t offset;
-    uint64_t got;
-
-    if (*(uint16_t *)(pc) == PLT_WITHOUT_CET) {
-        offset = *(uint32_t *)(pc + 2);
-        got = pc + 6 + (uint64_t)offset;
-        decode->dynsym_addr = *(uint64_t *)got;
-        decode->plt_begin_va = pc;
-        decode->unresolved = decode->dynsym_addr >= pc &&
-                             decode->dynsym_addr < pc + 16;
-        return true;
-    }
-
-    if (*(uint16_t *)(pc) == PLT_WITH_CET) {
-        if (*(uint8_t *)(pc + 2) == 0xf2) {
-            offset = *(uint32_t *)(pc + 3);
-            got = pc + 11 + (uint64_t)offset;
-        } else {
-            offset = *(uint32_t *)(pc + 2);
-            got = pc + 10 + (uint64_t)offset;
-        }
-        decode->dynsym_addr = *(uint64_t *)got;
-        decode->plt_begin_va = *(uint64_t *)(pc + 8);
-        decode->unresolved = decode->dynsym_addr >= decode->plt_begin_va &&
-                             decode->dynsym_addr < pc;
-        return true;
-    }
-
-    return false;
-}
 #endif
 
 #if defined(CONFIG_NATIVE_LIBS) && defined(__sw_64__)
@@ -8308,12 +8270,15 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         uint64_t pc = s->pc - 1;
 
         if (x86_decode_plt_stub(pc, &plt_decode)) {
+            x86binary_analysis_note_plt_trap_hit();
             if (plt_decode.unresolved) {
+                x86binary_analysis_note_plt_trap_unresolved();
                 s->base.tb->cflags |= CF_PLT_STUB;
                 gen_jmp_im(s, plt_decode.dynsym_addr - s->cs_base);
                 gen_eob(s);
                 s->base.is_jmp = DISAS_NORETURN;
             } else {
+                x86binary_analysis_note_plt_trap_resolved();
                 gen_goto_tb(s, 0, plt_decode.dynsym_addr - s->cs_base);
                 s->base.is_jmp = DISAS_NORETURN;
             }
