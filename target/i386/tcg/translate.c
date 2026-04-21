@@ -6211,7 +6211,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_gen_ext16u_tl(s->T0, s->T0);
             }
             next_eip = s->pc - s->cs_base;
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if (defined(CONFIG_RET_OPT) || defined(CONFIG_PRETR_OPT)) && defined(__sw_64__)
             s->base.tb->next_pc = next_eip;
 #endif
             tcg_gen_movi_tl(s->T1, next_eip);
@@ -7768,7 +7768,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tval = (int16_t)insn_get(env, s, MO_16);
             }
             next_eip = s->pc - s->cs_base;
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if (defined(CONFIG_RET_OPT) || defined(CONFIG_PRETR_OPT)) && defined(__sw_64__)
             s->base.tb->next_pc = next_eip;
 #endif
             tval += next_eip;
@@ -8285,23 +8285,23 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
 
             break;
         }
-#endif // end of CONFIG_INDIRECT_JUMP_OPT_PLT
+#endif /* end of CONFIG_INDIRECT_JUMP_OPT_PLT */
 
 #if defined(CONFIG_NATIVE_LIBS) && defined(__sw_64__)
-        // call native libs
-        /* please refer to do_replace_x86func_with_sw64Bridge in native_libs.c
-      // 写入单字节 0xCC 到 targetaddr 地址
-      *(uint8_t *)targetaddr = 0xCC;
-      // 写入字符 'S' 到 targetaddr + 1 的位置（第二个字节）
-      *(uint8_t *)((char *)targetaddr + 1) = 'S';
-      // 写入字符 'S' 到 targetaddr + 1 的位置（第三个字节）
-      *(uint8_t *)((char *)targetaddr + 2) = 'C';
-      */
+      /*
+       * Call native libs.
+       * Please refer to do_replace_x86func_with_sw64Bridge in
+       * native_libs.c:
+       *   *(uint8_t *)targetaddr = 0xCC;
+       *   *(uint8_t *)((char *)targetaddr + 1) = 'S';
+       *   *(uint8_t *)((char *)targetaddr + 2) = 'C';
+       */
         if (*(uint8_t *)(s->pc + 0) == 'S' && *(uint8_t *)(s->pc + 1) == 'C') {
             FunctionMetadata *meta =
                 find_function_metadata_by_address((uintptr_t)s->pc - 1);
-#if 0 // for debug
-            printf("0x%lx call native function : %s\n",  s->pc-1, meta->funcname);
+#if 0 /* for debug */
+         printf("0x%lx call native function : %s\n", s->pc - 1,
+             meta->funcname);
 #endif
             if (meta == NULL) {
                 perror("native lib infomation is not found\n");
@@ -8341,7 +8341,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                         meta->funcname);
                 exit(-1);
             }
-            // ret to caller
+            /* ret to caller */
             ot = gen_pop_T0(s);
             gen_pop_update(s, ot);
             gen_op_jmp_v(s->T0);
@@ -8349,7 +8349,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_jr(s, s->T0);
             break;
         }
-#endif // endof CONFIG_NATIVE_LIBS
+#endif /* end of CONFIG_NATIVE_LIBS */
         gen_interrupt(s, EXCP03_INT3, pc_start - s->cs_base, s->pc - s->cs_base);
         break;
     }

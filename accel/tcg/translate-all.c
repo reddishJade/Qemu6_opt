@@ -1903,9 +1903,11 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tb->cflags = cflags;
     tb->trace_vcpu_dstate = *cpu->trace_dstate;
     tcg_ctx->tb_cflags = cflags;
+#if (defined(CONFIG_RET_OPT) || defined(CONFIG_PRETR_OPT)) && defined(__sw_64__)
+    tb->next_pc = 0;
+#endif
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
     tcg_ctx->tb_next_pc = 0;
-    tb->next_pc = 0;
     tb->jmp_to_next_offset = 0;
 #endif
  tb_overflow:
