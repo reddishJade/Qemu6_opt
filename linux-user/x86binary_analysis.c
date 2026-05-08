@@ -28,8 +28,6 @@
  * 全局变量
  *============================================================================*/
 
-static GHashTable *global_plt_table = NULL;
-
 typedef struct LoadedInodeKey {
   dev_t dev;
   ino_t ino;
@@ -396,10 +394,6 @@ void free_libentries(void) {
     libraries = NULL;
   }
 
-  if (global_plt_table) {
-    g_hash_table_destroy(global_plt_table);
-    global_plt_table = NULL;
-  }
   if (loaded_inodes) {
     g_hash_table_destroy(loaded_inodes);
     loaded_inodes = NULL;
@@ -421,23 +415,9 @@ void free_libentries(void) {
  * 初始化
  *============================================================================*/
 
-static void free_plt_value(gpointer data) {
-  PLT_HashValue *val = (PLT_HashValue *)data;
-  if (val) {
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
-    if (val->module_name)
-      g_free(val->module_name);
-    if (val->funcname)
-      g_free(val->funcname);
-#endif
-    g_free(val);
-  }
-}
-
 static inline void init_libentries(void) {
   if ((!NEED_FULL_DYNSYM_ANALYSIS || libraries != NULL) &&
-      global_plt_table != NULL && loaded_inodes != NULL &&
-      loaded_library_names != NULL) {
+      loaded_inodes != NULL && loaded_library_names != NULL) {
     return;
   }
 
@@ -455,11 +435,6 @@ static inline void init_libentries(void) {
   if (loaded_library_names == NULL) {
     loaded_library_names =
         g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
-  }
-
-  if (global_plt_table == NULL) {
-    global_plt_table = g_hash_table_new_full(g_direct_hash, g_direct_equal,
-                                             NULL, free_plt_value);
   }
 
   if (!is_global_table_mutex_initialized) {
@@ -685,67 +660,21 @@ static inline void replace_x86func_with_sw64Bridge(struct Libraris *lib,
  *============================================================================*/
 
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-bool plt_stub_matches_expected_layout(uintptr_t plt_stub_va,
-                                      const PLT_HashValue *plt_value) {
-  if (plt_value->with_cet) {
-    if (*(uint32_t *)plt_stub_va != 0xfa1e0ff3) {
-      return false;
-    }
-
-    if (*(uint8_t *)(plt_stub_va + 4) == 0xf2) {
-      return *(uint16_t *)(plt_stub_va + 5) == 0x25ff;
-    }
-
-    return *(uint16_t *)(plt_stub_va + 4) == 0x25ff;
-  }
-
-  return *(uint16_t *)plt_stub_va == 0x25ff;
-}
-
-bool x86_encode_plt_trap(uintptr_t plt_stub_va, const PLT_HashValue *plt_value) {
+typedef struct PLTPatchEntry {
+  uintptr_t stub_va;
+  uint64_t plt_begin_va;
   uint32_t offset;
-
-  if (!plt_stub_matches_expected_layout(plt_stub_va, plt_value)) {
-    ANALYZE_STATS_DO(x86binary_analysis_note_plt_stub_skipped(););
-    return false;
-  }
-
-  if (plt_value->with_cet) {
-    /* CET: endbr64 + jmp -> 0xCC 'E' + disp32 + plt_begin_va */
-    *(uint16_t *)plt_stub_va = (uint16_t)PLT_WITH_CET;
-    if (*(uint8_t *)(plt_stub_va + 4) == 0xf2) {
-      offset = *(uint32_t *)(plt_stub_va + 7);
-      *(uint8_t *)(plt_stub_va + 2) = 0xf2;
-      *(uint32_t *)(plt_stub_va + 3) = offset;
-    } else {
-      offset = *(uint32_t *)(plt_stub_va + 6);
-      *(uint32_t *)(plt_stub_va + 2) = offset;
-    }
-    *(uint64_t *)(plt_stub_va + 8) = plt_value->plt_begin_va;
-  } else {
-    /* 非CET: jmp -> 0xCC 'P' + disp32 */
-    *(uint16_t *)plt_stub_va = (uint16_t)PLT_WITHOUT_CET;
-  }
-
-  ANALYZE_STATS_DO(x86binary_analysis_note_plt_stub_patched(););
-  return true;
-}
+  int with_cet;
+  int with_bnd;
+} PLTPatchEntry;
 
 typedef struct PLTPatchRange {
   uintptr_t min_stub;
   uintptr_t max_stub;
 } PLTPatchRange;
 
-static void do_collect_plt_patch_range(gpointer key, gpointer value,
-                                       gpointer user_data) {
-  uintptr_t plt_stub_va = (uintptr_t)key;
-  PLT_HashValue *plt_value = (PLT_HashValue *)value;
-  PLTPatchRange *range = user_data;
-
-  if (!plt_stub_matches_expected_layout(plt_stub_va, plt_value)) {
-    return;
-  }
-
+static inline void update_plt_patch_range(PLTPatchRange *range,
+                                          uintptr_t plt_stub_va) {
   if (range->min_stub == 0 || plt_stub_va < range->min_stub) {
     range->min_stub = plt_stub_va;
   }
@@ -755,32 +684,74 @@ static void do_collect_plt_patch_range(gpointer key, gpointer value,
   }
 }
 
-static void do_filter_invalid_plt_entry(gpointer key, gpointer value,
-                                        gpointer user_data) {
-  GHashTable *valid_plt_table = user_data;
-  uintptr_t plt_stub_va = (uintptr_t)key;
-  PLT_HashValue *plt_value = (PLT_HashValue *)value;
+static bool collect_plt_patch_entry(uintptr_t plt_stub_va,
+                                    uint64_t plt_begin_va, int with_cet,
+                                    PLTPatchEntry *entry) {
+  entry->stub_va = plt_stub_va;
+  entry->plt_begin_va = plt_begin_va;
+  entry->with_cet = with_cet;
+  entry->with_bnd = 0;
+  entry->offset = 0;
 
-  if (plt_stub_matches_expected_layout(plt_stub_va, plt_value)) {
-    g_hash_table_insert(valid_plt_table, key, value);
-  } else {
-    ANALYZE_STATS_DO(x86binary_analysis_note_plt_stub_skipped(););
-    free_plt_value(plt_value);
+  if (with_cet) {
+    if (*(uint32_t *)plt_stub_va != 0xfa1e0ff3) {
+      return false;
+    }
+
+    if (*(uint8_t *)(plt_stub_va + 4) == 0xf2) {
+      if (*(uint16_t *)(plt_stub_va + 5) != 0x25ff) {
+        return false;
+      }
+      entry->with_bnd = 1;
+      entry->offset = *(uint32_t *)(plt_stub_va + 7);
+      return true;
+    }
+
+    if (*(uint16_t *)(plt_stub_va + 4) != 0x25ff) {
+      return false;
+    }
+    entry->offset = *(uint32_t *)(plt_stub_va + 6);
+    return true;
   }
+
+  if (*(uint16_t *)plt_stub_va != 0x25ff) {
+    return false;
+  }
+  entry->offset = *(uint32_t *)(plt_stub_va + 2);
+  return true;
 }
 
-static inline void replace_plt_with_trap(GHashTable *plt_table) {
-  size_t page_size = sysconf(_SC_PAGESIZE);
-  PLTPatchRange range = {0};
+static void x86_encode_plt_trap(const PLTPatchEntry *entry) {
+  uintptr_t plt_stub_va = entry->stub_va;
 
-  g_hash_table_foreach(plt_table, do_collect_plt_patch_range, &range);
-  if (range.min_stub == 0) {
+  if (entry->with_cet) {
+    /* CET: endbr64 + jmp -> 0xCC 'E' + disp32 + plt_begin_va */
+    *(uint16_t *)plt_stub_va = (uint16_t)PLT_WITH_CET;
+    if (entry->with_bnd) {
+      *(uint8_t *)(plt_stub_va + 2) = 0xf2;
+      *(uint32_t *)(plt_stub_va + 3) = entry->offset;
+    } else {
+      *(uint32_t *)(plt_stub_va + 2) = entry->offset;
+    }
+    *(uint64_t *)(plt_stub_va + 8) = entry->plt_begin_va;
+  } else {
+    /* 非CET: jmp -> 0xCC 'P' + disp32 */
+    *(uint16_t *)plt_stub_va = (uint16_t)PLT_WITHOUT_CET;
+  }
+
+  ANALYZE_STATS_DO(x86binary_analysis_note_plt_stub_patched(););
+}
+
+static inline void replace_plt_with_trap(GArray *plt_entries,
+                                         const PLTPatchRange *range) {
+  if (plt_entries->len == 0) {
     return;
   }
 
-  uintptr_t aligned_start = range.min_stub & ~(page_size - 1);
+  size_t page_size = sysconf(_SC_PAGESIZE);
+  uintptr_t aligned_start = range->min_stub & ~(page_size - 1);
   uintptr_t aligned_end =
-      ((range.max_stub + PLT_ENTRY_SIZE) + page_size - 1) & ~(page_size - 1);
+      ((range->max_stub + PLT_ENTRY_SIZE) + page_size - 1) & ~(page_size - 1);
   size_t length = aligned_end - aligned_start;
 
   int original_prot = PROT_READ | PROT_EXEC;
@@ -790,15 +761,9 @@ static inline void replace_plt_with_trap(GHashTable *plt_table) {
     exit(-1);
   }
 
-  GHashTableIter iter;
-  gpointer key;
-  gpointer value;
-  g_hash_table_iter_init(&iter, plt_table);
-  while (g_hash_table_iter_next(&iter, &key, &value)) {
-    if (!x86_encode_plt_trap((uintptr_t)key, (const PLT_HashValue *)value)) {
-      g_hash_table_iter_remove(&iter);
-      free_plt_value(value);
-    }
+  for (guint i = 0; i < plt_entries->len; i++) {
+    PLTPatchEntry *entry = &g_array_index(plt_entries, PLTPatchEntry, i);
+    x86_encode_plt_trap(entry);
   }
 
   if (mprotect((void *)aligned_start, length, original_prot) == -1) {
@@ -884,20 +849,14 @@ static void do_native_libs_analyze(sw64_lib_item *lib_item, Elf_Data *sym_data,
  *============================================================================*/
 
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
-static void do_plt_merge_to_global(gpointer key, gpointer value,
-                                   gpointer user_data) {
-  g_hash_table_insert(global_plt_table, key, value);
-}
-
 /**
  * 解析 .rela.plt 段，构建 PLT 跳转表并替换为优化陷阱。
  * 仅在 CONFIG_INDIRECT_JUMP_OPT_PLT 编译开关启用时生效。
  */
-static void do_plt_opt_analyze(int fd, Elf *elf, Elf_Scn *scn_rela_plt,
-                               GElf_Shdr *shdr_rela_plt, Elf_Scn *scn_dynsym,
-                               GElf_Shdr *shdr_dynsym, abi_ulong plt_sec_va,
-                               abi_ulong plt_begin_va, abi_ulong start,
-                               abi_ulong len, const char *libname) {
+static void do_plt_opt_analyze(Elf_Scn *scn_rela_plt,
+                               GElf_Shdr *shdr_rela_plt,
+                               abi_ulong plt_sec_va, abi_ulong plt_begin_va,
+                               const char *libname) {
   if (!scn_rela_plt || (!plt_sec_va && !plt_begin_va))
     return;
 
@@ -907,34 +866,12 @@ static void do_plt_opt_analyze(int fd, Elf *elf, Elf_Scn *scn_rela_plt,
     return;
   }
 
-  GHashTable *current_plt_table =
-      g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, NULL);
-
-  bool current_plt_not_empty = false;
   size_t rela_count = shdr_rela_plt->sh_size / shdr_rela_plt->sh_entsize;
+  GArray *plt_entries =
+      g_array_sized_new(FALSE, FALSE, sizeof(PLTPatchEntry), rela_count);
+  PLTPatchRange range = {0};
 
   ANALYZE_STATS_DO(analyze_stats.rela_plt_count += rela_count;);
-
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
-  char *strtab = NULL;
-  Elf_Data *dynsym_data = elf_getdata(scn_dynsym, NULL);
-  if (shdr_dynsym->sh_link != SHN_UNDEF) {
-    Elf_Scn *strtab_scn = elf_getscn(elf, shdr_dynsym->sh_link);
-    if (strtab_scn) {
-      GElf_Shdr strtab_shdr;
-      if (gelf_getshdr(strtab_scn, &strtab_shdr) == &strtab_shdr) {
-        strtab = malloc(strtab_shdr.sh_size);
-        if (strtab) {
-          if (pread(fd, strtab, strtab_shdr.sh_size, strtab_shdr.sh_offset) !=
-              strtab_shdr.sh_size) {
-            free(strtab);
-            strtab = NULL;
-          }
-        }
-      }
-    }
-  }
-#endif
 
   for (size_t i = 0; i < rela_count; i++) {
     GElf_Rela rela;
@@ -949,61 +886,28 @@ static void do_plt_opt_analyze(int fd, Elf *elf, Elf_Scn *scn_rela_plt,
       int with_cet;
 
       if (plt_sec_va) {
-        plt_stub_va = plt_sec_va + i * 16;
+        plt_stub_va = plt_sec_va + i * PLT_ENTRY_SIZE;
         with_cet = 1;
       } else {
-        plt_stub_va = plt_begin_va + (i + 1) * 16;
+        plt_stub_va = plt_begin_va + (i + 1) * PLT_ENTRY_SIZE;
         with_cet = 0;
       }
 
-      int sym_idx = ELF64_R_SYM(rela.r_info);
-      if (sym_idx < 0 ||
-          sym_idx >= (int)(shdr_dynsym->sh_size / shdr_dynsym->sh_entsize)) {
-        fprintf(stderr, "Invalid symbol index: %d\n", sym_idx);
-        continue;
+      PLTPatchEntry entry;
+      if (collect_plt_patch_entry((uintptr_t)plt_stub_va, plt_begin_va,
+                                  with_cet, &entry)) {
+        g_array_append_val(plt_entries, entry);
+        update_plt_patch_range(&range, (uintptr_t)plt_stub_va);
+      } else {
+        ANALYZE_STATS_DO(x86binary_analysis_note_plt_stub_skipped(););
       }
-
-      PLT_HashValue *plt_value = g_malloc0(sizeof(PLT_HashValue));
-      plt_value->plt_begin_va = plt_begin_va;
-      plt_value->with_cet = with_cet;
-
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
-      plt_value->module_name = g_strdup(libname);
-      if (strtab && dynsym_data) {
-        GElf_Sym sym;
-        if (gelf_getsym(dynsym_data, sym_idx, &sym) != NULL) {
-          plt_value->funcname = g_strdup(strtab + sym.st_name);
-        }
-      }
-#endif
-
-      g_hash_table_insert(current_plt_table, GUINT_TO_POINTER(plt_stub_va),
-                          plt_value);
-      current_plt_not_empty = true;
     }
   }
 
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
-  if (strtab) {
-    free(strtab);
+  if (plt_entries->len > 0) {
+    replace_plt_with_trap(plt_entries, &range);
   }
-#endif
-
-  if (current_plt_not_empty) {
-    GHashTable *valid_plt_table =
-        g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, NULL);
-
-    g_hash_table_foreach(current_plt_table, do_filter_invalid_plt_entry,
-                         valid_plt_table);
-    g_hash_table_destroy(current_plt_table);
-    current_plt_table = valid_plt_table;
-
-    if (g_hash_table_size(current_plt_table) > 0) {
-      replace_plt_with_trap(current_plt_table);
-      g_hash_table_foreach(current_plt_table, do_plt_merge_to_global, NULL);
-    }
-  }
-  g_hash_table_destroy(current_plt_table);
+  g_array_free(plt_entries, TRUE);
 }
 #endif
 
@@ -1153,8 +1057,7 @@ static void do_analyze_x86binary(const char *libname, int fd, abi_ulong start,
   /* ---- CONFIG_INDIRECT_JUMP_OPT_PLT: PLT 间接跳转优化处理 ---- */
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT) && defined(__sw_64__)
   ANALYZE_STATS_DO(plt_begin_ns = ANALYZE_CLOCK_NOW_NS(););
-  do_plt_opt_analyze(fd, elf, scn_rela_plt, &shdr_rela_plt, scn_dynsym,
-                     &shdr_dynsym, plt_sec_va, plt_begin_va, start, len,
+  do_plt_opt_analyze(scn_rela_plt, &shdr_rela_plt, plt_sec_va, plt_begin_va,
                      libname);
   ANALYZE_STATS_DO(analyze_stats.plt_ns +=
                    ANALYZE_CLOCK_NOW_NS() - plt_begin_ns;);

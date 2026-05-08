@@ -62,19 +62,6 @@ typedef struct ArchCallingRule {
 } ArchCallingRule;
 
 /*============================================================================
- * PLT 信息结构
- *============================================================================*/
-
-typedef struct PLT_HashValue {
-#if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
-  char *module_name;
-  char *funcname;
-#endif
-  uint64_t plt_begin_va;
-  int with_cet;
-} PLT_HashValue;
-
-/*============================================================================
  * 函数映射结构
  *============================================================================*/
 
@@ -125,9 +112,6 @@ extern char native_libs_write_path[256];
 void free_libentries(void);
 void analyze_x86binary(int fd, abi_ulong start, abi_ulong len,
                        abi_ulong fd_offset);
-bool plt_stub_matches_expected_layout(uintptr_t plt_stub_va,
-                                      const PLT_HashValue *plt_value);
-bool x86_encode_plt_trap(uintptr_t plt_stub_va, const PLT_HashValue *plt_value);
 bool x86_decode_plt_stub(uint64_t pc, X86PLTDecode *decode);
 #if defined(CONFIG_INDIRECT_JUMP_OPT_PLT_DEBUG) && defined(__sw_64__)
 void x86binary_analysis_dump_stats(void);
