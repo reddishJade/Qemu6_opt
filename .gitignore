@@ -49,3 +49,19 @@
 !trace-events
 !qemu.nsi
 !qemu.sasl
+
+# 格式化配置文件
+.clang-format
+
+# AI指示
+!AGENTS.md
+!CLAUDE.md
+
+# 文档
+!.doc/
+!.doc/**
+
+# GOT 间接跳转优化验证脚本
+!scripts/
+scripts/*
+!scripts/got-opt-measure.sh
