@@ -364,6 +364,7 @@ pretr_opt="no"
 pretr_log="no"
 ret_opt="no"
 tcg_stats="no"
+indirect_profile="no"
 indirect_oracle_top1="no"
 native_libs="no"
 native_libs_load_debug="no"
@@ -1077,6 +1078,10 @@ for opt do
   --enable-tcg-stats) tcg_stats="yes"
   ;;
   --disable-tcg-stats) tcg_stats="no"
+  ;;
+  --enable-indirect-profile) indirect_profile="yes"
+  ;;
+  --disable-indirect-profile) indirect_profile="no"
   ;;
   --enable-indirect-oracle-top1) indirect_oracle_top1="yes"
   ;;
@@ -5591,6 +5596,13 @@ if test "$pretr_opt" = "yes" ; then
 fi
 if test "$tcg_stats" = "yes" ; then
   echo "CONFIG_TCG_STATS=y" >> $config_host_mak
+fi
+if test "$indirect_profile" = "yes" && \
+   test "$indirect_oracle_top1" = "yes" ; then
+  error_exit "indirect profiling and Oracle Top-1 cannot be enabled together"
+fi
+if test "$indirect_profile" = "yes" ; then
+  echo "CONFIG_INDIRECT_PROFILE=y" >> $config_host_mak
 fi
 if test "$indirect_oracle_top1" = "yes" ; then
   echo "CONFIG_INDIRECT_ORACLE_TOP1=y" >> $config_host_mak

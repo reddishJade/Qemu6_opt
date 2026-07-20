@@ -32,6 +32,10 @@
 #include "tcg/tcg.h"
 #include "exec/tb-lookup.h"
 
+#if defined(CONFIG_INDIRECT_PROFILE)
+#include "exec/indirect-profile.h"
+#endif
+
 #if defined(CONFIG_NATIVE_LIBS) || defined(CONFIG_NATIVE_LIBS_CALL_DEBUG)
 #include "x86binary_analysis.h"
 #include "include/qapi/error.h"
@@ -194,6 +198,14 @@ const void *HELPER(lookup_tb_ptr)(CPUArchState *env)
                            lookup_symbol(pc));
     return tb->tc.ptr;
 }
+
+#if defined(CONFIG_INDIRECT_PROFILE)
+void HELPER(profile_indirect)(target_ulong site_pc, target_ulong target,
+                              uint32_t type)
+{
+    indirect_profile_record(site_pc, target, type);
+}
+#endif
 #if defined(CONFIG_NATIVE_LIBS)
 #define SAVE_ENV_REGISTER() \
     __asm__("FILLCS  0($17)" :::); \

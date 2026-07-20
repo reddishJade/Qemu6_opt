@@ -33,6 +33,10 @@
 #include "trace-tcg.h"
 #include "exec/log.h"
 
+#if defined(CONFIG_INDIRECT_PROFILE)
+#include "exec/indirect-profile.h"
+#endif
+
 #if (defined(CONFIG_NATIVE_LIBS) || defined(CONFIG_INDIRECT_JUMP_OPT_PLT)) &&  \
     defined(__sw_64__)
 #include "x86binary_analysis.h"
@@ -6259,6 +6263,11 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
 #if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
             gen_oracle_top1(s, s->T0);
 #endif
+#if defined(CONFIG_INDIRECT_PROFILE)
+            gen_helper_profile_indirect(
+                tcg_const_tl(s->pc_start - s->cs_base), s->T0,
+                tcg_const_i32(INDIRECT_PROFILE_CALL));
+#endif
             gen_jr(s, s->T0);
             break;
         case 3: /* lcall Ev */
@@ -6289,6 +6298,11 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             }
             gen_op_jmp_v(s->T0);
             gen_bnd_jmp(s);
+#if defined(CONFIG_INDIRECT_PROFILE)
+            gen_helper_profile_indirect(
+                tcg_const_tl(s->pc_start - s->cs_base), s->T0,
+                tcg_const_i32(INDIRECT_PROFILE_JMP));
+#endif
             gen_jr(s, s->T0);
             break;
         case 5: /* ljmp Ev */
@@ -7734,6 +7748,11 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         /* Note that gen_pop_T0 uses a zero-extending load.  */
         gen_op_jmp_v(s->T0);
         gen_bnd_jmp(s);
+#if defined(CONFIG_INDIRECT_PROFILE)
+        gen_helper_profile_indirect(
+            tcg_const_tl(s->pc_start - s->cs_base), s->T0,
+            tcg_const_i32(INDIRECT_PROFILE_RET));
+#endif
         gen_jr(s, s->T0);
         break;
     case 0xc3: /* ret */
@@ -7746,11 +7765,21 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
         gen_op_jmp_v(s->T0);
         gen_bnd_jmp(s);
+#if defined(CONFIG_INDIRECT_PROFILE)
+        gen_helper_profile_indirect(
+            tcg_const_tl(s->pc_start - s->cs_base), s->T0,
+            tcg_const_i32(INDIRECT_PROFILE_RET));
+#endif
         gen_ret(s, s->T0);
 #else
         /* Note that gen_pop_T0 uses a zero-extending load.  */
         gen_op_jmp_v(s->T0);
         gen_bnd_jmp(s);
+#if defined(CONFIG_INDIRECT_PROFILE)
+        gen_helper_profile_indirect(
+            tcg_const_tl(s->pc_start - s->cs_base), s->T0,
+            tcg_const_i32(INDIRECT_PROFILE_RET));
+#endif
         gen_jr(s, s->T0);
 #endif
         break;

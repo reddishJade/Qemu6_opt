@@ -18,6 +18,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu.h"
+#include "exec/indirect-profile.h"
 #ifdef CONFIG_GPROF
 #include <sys/gmon.h>
 #endif
@@ -41,6 +42,9 @@ void preexit_cleanup(CPUArchState *env, int code)
 #endif
 #ifdef CONFIG_GCOV
         __gcov_dump();
+#endif
+#if defined(CONFIG_INDIRECT_PROFILE)
+        indirect_profile_dump();
 #endif
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
         tcg_stats_dump();
