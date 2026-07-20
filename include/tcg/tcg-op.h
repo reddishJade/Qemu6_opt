@@ -983,6 +983,10 @@ void tcg_gen_goto_tb(unsigned idx);
  */
 void tcg_gen_lookup_and_goto_ptr(void);
 
+#if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
+void tcg_gen_oracle_top1(TCGv dest, target_ulong target);
+#endif
+
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
 /**
  * tcg_gen_ret() - output ret TCG operation

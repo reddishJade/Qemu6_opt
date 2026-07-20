@@ -364,6 +364,7 @@ pretr_opt="no"
 pretr_log="no"
 ret_opt="no"
 tcg_stats="no"
+indirect_oracle_top1="no"
 native_libs="no"
 native_libs_load_debug="no"
 native_libs_call_debug="no"
@@ -1076,6 +1077,10 @@ for opt do
   --enable-tcg-stats) tcg_stats="yes"
   ;;
   --disable-tcg-stats) tcg_stats="no"
+  ;;
+  --enable-indirect-oracle-top1) indirect_oracle_top1="yes"
+  ;;
+  --disable-indirect-oracle-top1) indirect_oracle_top1="no"
   ;;
   --enable-native-libs) native_libs="yes"
   ;;
@@ -5586,6 +5591,9 @@ if test "$pretr_opt" = "yes" ; then
 fi
 if test "$tcg_stats" = "yes" ; then
   echo "CONFIG_TCG_STATS=y" >> $config_host_mak
+fi
+if test "$indirect_oracle_top1" = "yes" ; then
+  echo "CONFIG_INDIRECT_ORACLE_TOP1=y" >> $config_host_mak
 fi
 if [ "$native_libs" = "yes" ] && \
    [ "$native_libs_load_debug" = "no" ] && \

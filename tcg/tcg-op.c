@@ -2740,6 +2740,13 @@ void tcg_gen_lookup_and_goto_ptr(void)
     }
 }
 
+#if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
+void tcg_gen_oracle_top1(TCGv dest, target_ulong target)
+{
+    tcg_gen_op2(INDEX_op_oracle_top1, tcgv_i64_arg(dest), target);
+}
+#endif
+
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
 void tcg_gen_ret(TCGv dest) {
     if (TCG_TARGET_HAS_ret && !qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {

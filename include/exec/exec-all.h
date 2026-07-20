@@ -500,6 +500,11 @@ struct TranslationBlock {
     /* Host patch offset (from tb->tc.ptr) for pbrp chaining.  */
     uintptr_t jmp_to_next_offset;
 #endif
+#if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
+    /* Workload-specific oracle target and its host-code patch slot. */
+    target_ulong oracle_top1_pc;
+    uintptr_t oracle_top1_patch_offset;
+#endif
 
     /*
      * Each TB has a NULL-terminated list (jmp_list_head) of incoming jumps.

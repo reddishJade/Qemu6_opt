@@ -2084,6 +2084,61 @@ void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb)
 }
 #endif
 
+#if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
+#define ORACLE_TOP1_SLOT_SIZE 6
+
+static inline void emit_oracle_top1_nop_slot(TCGContext *s)
+{
+    for (int i = 0; i < ORACLE_TOP1_SLOT_SIZE; i++) {
+        tcg_out32(s, OPC_NOP);
+    }
+}
+
+void patch_oracle_top1(TranslationBlock *tb, TranslationBlock *target_tb)
+{
+    uintptr_t rx, rw, p;
+    uintptr_t target;
+    tcg_target_long l0, l1, l2;
+    tcg_insn_unit insn[ORACLE_TOP1_SLOT_SIZE];
+    TCGReg rd = TCG_REG_TMP;
+
+    if (!tb->oracle_top1_patch_offset) {
+        return;
+    }
+
+    rx = (uintptr_t)tb->tc.ptr + tb->oracle_top1_patch_offset;
+    rw = rx - tcg_splitwx_diff;
+    if (*(uint32_t *)(rw + 4) != OPC_NOP) {
+        return;
+    }
+
+    target = (uintptr_t)target_tb->tc.ptr;
+    l0 = (int16_t)target;
+    p = (target - l0) >> 16;
+    l1 = (int16_t)p;
+    p = (p - l1) >> 16;
+    l2 = (int16_t)p;
+
+    insn[0] = OPC_NOP;
+    insn[1] = OPC_LDI | (rd & 0x1f) << 21 |
+              (TCG_REG_ZERO & 0x1f) << 16 | (l2 & 0xffff);
+    insn[2] = OPC_SLLL_I | (rd & 0x1f) << 21 |
+              (32 & 0xff) << 13 | (rd & 0x1f);
+    insn[3] = OPC_LDIH | (rd & 0x1f) << 21 |
+              (rd & 0x1f) << 16 | (l1 & 0xffff);
+    insn[4] = OPC_LDI | (rd & 0x1f) << 21 |
+              (rd & 0x1f) << 16 | (l0 & 0xffff);
+    insn[5] = OPC_JMP | (TCG_REG_ZERO & 0x1f) << 21 |
+              (rd & 0x1f) << 16;
+
+    for (int i = 0; i < ORACLE_TOP1_SLOT_SIZE; i += 2) {
+        uint64_t pair = (uint64_t)insn[i + 1] << 32 | insn[i];
+        qatomic_set((uint64_t *)(rw + i * 4), pair);
+    }
+    flush_idcache_range(rx, rw, sizeof(insn));
+}
+#endif
+
 static inline void tcg_out_goto_label(TCGContext *s, TCGLabel *l)
 {
     if (!l->has_value) {
@@ -2969,6 +3024,17 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
         tcg_out_insn_jump(s, OPC_JMP, TCG_REG_ZERO, a0, noPara);
         break;
 
+#if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
+    case INDEX_op_oracle_top1:
+        tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_TMP2, a1);
+        tcg_out_insn_simpleReg(s, OPC_SUBL, TCG_REG_TMP2,
+                               TCG_REG_TMP2, a0);
+        tcg_out_insn_br(s, OPC_BNE, TCG_REG_TMP2, ORACLE_TOP1_SLOT_SIZE);
+        *(s->oracle_top1_patch_offset) = tcg_current_code_size(s);
+        emit_oracle_top1_nop_slot(s);
+        break;
+#endif
+
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
     case INDEX_op_ret:
         tcg_out_insn_ldst(s, OPC_LDL, TCG_REG_TMP,  TCG_AREG0, offsetof(CPUX86State, gpc));
@@ -3600,6 +3666,10 @@ static TCGConstraintSetIndex tcg_target_op_def(TCGOpcode op)
     case INDEX_op_ret:
 #endif
         return C_O0_I1(r);
+#if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
+    case INDEX_op_oracle_top1:
+        return C_O0_I1(r);
+#endif
 
     case INDEX_op_ld8u_i32:
     case INDEX_op_ld8s_i32:

@@ -1747,6 +1747,10 @@ bool tcg_op_supported(TCGOpcode op)
     case INDEX_op_ret:
         return TCG_TARGET_HAS_ret;
 #endif
+#if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
+    case INDEX_op_oracle_top1:
+        return TCG_TARGET_HAS_oracle_top1;
+#endif
 
     case INDEX_op_mov_i32:
     case INDEX_op_setcond_i32:

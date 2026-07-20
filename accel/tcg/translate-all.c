@@ -1910,6 +1910,10 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tcg_ctx->tb_next_pc = 0;
     tb->jmp_to_next_offset = 0;
 #endif
+#if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
+    tb->oracle_top1_pc = 0;
+    tb->oracle_top1_patch_offset = 0;
+#endif
  tb_overflow:
 
 #ifdef CONFIG_PROFILER
@@ -1947,6 +1951,9 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
     tcg_ctx->pbrp_patch_offset = &tb->jmp_to_next_offset;
     tcg_ctx->tb_next_pc = tb->next_pc;
+#endif
+#if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
+    tcg_ctx->oracle_top1_patch_offset = &tb->oracle_top1_patch_offset;
 #endif
 
 #ifdef CONFIG_PROFILER
