@@ -631,6 +631,9 @@ struct TCGContext {
 #if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
     uintptr_t *oracle_top1_patch_offset;
 #endif
+#if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
+    uintptr_t *oracle_top2_patch_offset;
+#endif
 
     TCGRegSet reserved_regs;
     uint32_t tb_cflags; /* cflags of the current TB */

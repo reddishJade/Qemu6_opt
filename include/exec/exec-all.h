@@ -505,6 +505,10 @@ struct TranslationBlock {
     target_ulong oracle_top1_pc;
     uintptr_t oracle_top1_patch_offset;
 #endif
+#if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
+    target_ulong oracle_top2_pc[2];
+    uintptr_t oracle_top2_patch_offset[2];
+#endif
 
     /*
      * Each TB has a NULL-terminated list (jmp_list_head) of incoming jumps.

@@ -251,6 +251,48 @@ static void gen_oracle_top1(DisasContext *s, TCGv dest)
     }
 }
 #endif
+#if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
+static bool h264ref_oracle_top2(target_ulong site, target_ulong target[2])
+{
+    switch (site) {
+    case 0x400003ab34ULL:
+        target[0] = 0x400005dc10ULL;
+        target[1] = 0x400005dc30ULL;
+        return true;
+    case 0x400003c4cbULL: case 0x400003c501ULL:
+    case 0x400003c537ULL: case 0x400003c56cULL:
+    case 0x400003c59dULL: case 0x400003c5ccULL:
+    case 0x400003c5fbULL: case 0x400003c629ULL:
+    case 0x400003c65aULL: case 0x400003c689ULL:
+    case 0x400003c6b8ULL: case 0x400003c6e6ULL:
+    case 0x400003c717ULL: case 0x400003c746ULL:
+    case 0x400003c775ULL: case 0x400003c7a3ULL:
+    case 0x400003cb5aULL: case 0x400003cb90ULL:
+    case 0x400003cbc6ULL: case 0x400003cbfbULL:
+    case 0x400003cc2cULL: case 0x400003cc5bULL:
+    case 0x400003cc8aULL: case 0x400003ccb8ULL:
+    case 0x400003cce9ULL: case 0x400003cd18ULL:
+    case 0x400003cd47ULL: case 0x400003cd75ULL:
+    case 0x400003cda6ULL:
+        target[0] = 0x400005dfe0ULL;
+        target[1] = 0x400005df60ULL;
+        return true;
+    default:
+        return false;
+    }
+}
+
+static void gen_oracle_top2(DisasContext *s, TCGv dest)
+{
+    target_ulong target[2];
+
+    if (h264ref_oracle_top2(s->pc_start - s->cs_base, target)) {
+        s->base.tb->oracle_top2_pc[0] = target[0];
+        s->base.tb->oracle_top2_pc[1] = target[1];
+        tcg_gen_oracle_top2(dest, target[0], target[1]);
+    }
+}
+#endif
 static void gen_jmp(DisasContext *s, target_ulong eip);
 static void gen_jmp_tb(DisasContext *s, target_ulong eip, int tb_num);
 static void gen_op(DisasContext *s1, int op, MemOp ot, int d);
@@ -6262,6 +6304,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_bnd_jmp(s);
 #if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
             gen_oracle_top1(s, s->T0);
+#endif
+#if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
+            gen_oracle_top2(s, s->T0);
 #endif
 #if defined(CONFIG_INDIRECT_PROFILE)
             gen_helper_profile_indirect(
