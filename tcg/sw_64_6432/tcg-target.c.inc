@@ -2084,6 +2084,84 @@ void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb)
 }
 #endif
 
+#if defined(CONFIG_INDIRECT_ORACLE_DUMP) && defined(__sw_64__)
+static bool oracle_dump_matches(const TranslationBlock *tb)
+{
+    const char *path = getenv("QEMU_INDIRECT_ORACLE_DUMP");
+    const char *site_text = getenv("QEMU_INDIRECT_ORACLE_DUMP_SITE");
+    unsigned long long site;
+    char *end;
+
+    if (!path || !path[0]) {
+        return false;
+    }
+    if (!site_text || !site_text[0]) {
+        return true;
+    }
+
+    errno = 0;
+    site = strtoull(site_text, &end, 0);
+    if (errno || end == site_text || *end != '\0') {
+        return false;
+    }
+    return tb->oracle_dump_site == (target_ulong)site;
+}
+
+static void oracle_dump_host_code(const char *kind, const char *phase,
+                                  const TranslationBlock *tb, int index,
+                                  const TranslationBlock *target_tb)
+{
+    const char *path;
+    const uint32_t *code;
+    uintptr_t rw_base;
+    FILE *fp;
+    size_t insn_count;
+
+    if (!oracle_dump_matches(tb)) {
+        return;
+    }
+
+    path = getenv("QEMU_INDIRECT_ORACLE_DUMP");
+    fp = fopen(path, "a");
+    if (!fp) {
+        fprintf(stderr, "oracle dump: cannot open %s: %s\n",
+                path, strerror(errno));
+        return;
+    }
+
+    rw_base = (uintptr_t)tb->tc.ptr - tcg_splitwx_diff;
+    code = (const uint32_t *)rw_base;
+    insn_count = tb->tc.size / sizeof(*code);
+
+    fprintf(fp,
+            "record kind=%s phase=%s index=%d "
+            "site=0x%016llx tb_pc=0x%016llx "
+            "tb_rx=0x%016llx tb_rw=0x%016llx tb_size=%zu "
+            "target_pc=0x%016llx target_rx=0x%016llx\n",
+            kind, phase, index,
+            (unsigned long long)tb->oracle_dump_site,
+            (unsigned long long)tb->pc,
+            (unsigned long long)(uintptr_t)tb->tc.ptr,
+            (unsigned long long)rw_base, tb->tc.size,
+            (unsigned long long)(target_tb ? target_tb->pc : 0),
+            (unsigned long long)(uintptr_t)(target_tb ? target_tb->tc.ptr : 0));
+#if defined(CONFIG_INDIRECT_ORACLE_TOP1)
+    fprintf(fp, "slot_offsets top1=0x%llx\n",
+            (unsigned long long)tb->oracle_top1_patch_offset);
+#endif
+#if defined(CONFIG_INDIRECT_ORACLE_TOP2)
+    fprintf(fp, "slot_offsets top2_0=0x%llx top2_1=0x%llx\n",
+            (unsigned long long)tb->oracle_top2_patch_offset[0],
+            (unsigned long long)tb->oracle_top2_patch_offset[1]);
+#endif
+    for (size_t i = 0; i < insn_count; i++) {
+        fprintf(fp, "%06zx %08x\n", i * sizeof(*code), code[i]);
+    }
+    fprintf(fp, "end_record\n");
+    fclose(fp);
+}
+#endif
+
 #if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
 #define ORACLE_TOP1_SLOT_SIZE 6
 
@@ -2108,7 +2186,13 @@ void patch_oracle_top1(TranslationBlock *tb, TranslationBlock *target_tb)
 
     rx = (uintptr_t)tb->tc.ptr + tb->oracle_top1_patch_offset;
     rw = rx - tcg_splitwx_diff;
+#if defined(CONFIG_INDIRECT_ORACLE_DUMP)
+    oracle_dump_host_code("top1", "before", tb, 0, target_tb);
+#endif
     if (*(uint32_t *)(rw + 4) != OPC_NOP) {
+#if defined(CONFIG_INDIRECT_ORACLE_DUMP)
+        oracle_dump_host_code("top1", "skip-not-nop", tb, 0, target_tb);
+#endif
         return;
     }
 
@@ -2136,6 +2220,9 @@ void patch_oracle_top1(TranslationBlock *tb, TranslationBlock *target_tb)
         qatomic_set((uint64_t *)(rw + i * 4), pair);
     }
     flush_idcache_range(rx, rw, sizeof(insn));
+#if defined(CONFIG_INDIRECT_ORACLE_DUMP)
+    oracle_dump_host_code("top1", "after", tb, 0, target_tb);
+#endif
 }
 #endif
 
@@ -2164,7 +2251,13 @@ void patch_oracle_top2(TranslationBlock *tb, TranslationBlock *target_tb,
 
     rx = (uintptr_t)tb->tc.ptr + tb->oracle_top2_patch_offset[index];
     rw = rx - tcg_splitwx_diff;
+#if defined(CONFIG_INDIRECT_ORACLE_DUMP)
+    oracle_dump_host_code("top2", "before", tb, index, target_tb);
+#endif
     if (*(uint32_t *)(rw + 4) != OPC_NOP) {
+#if defined(CONFIG_INDIRECT_ORACLE_DUMP)
+        oracle_dump_host_code("top2", "skip-not-nop", tb, index, target_tb);
+#endif
         return;
     }
 
@@ -2192,6 +2285,9 @@ void patch_oracle_top2(TranslationBlock *tb, TranslationBlock *target_tb,
         qatomic_set((uint64_t *)(rw + i * 4), pair);
     }
     flush_idcache_range(rx, rw, sizeof(insn));
+#if defined(CONFIG_INDIRECT_ORACLE_DUMP)
+    oracle_dump_host_code("top2", "after", tb, index, target_tb);
+#endif
 }
 #endif
 

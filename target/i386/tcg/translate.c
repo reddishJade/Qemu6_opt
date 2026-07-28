@@ -247,6 +247,9 @@ static void gen_oracle_top1(DisasContext *s, TCGv dest)
 
     if (target) {
         s->base.tb->oracle_top1_pc = target;
+#if defined(CONFIG_INDIRECT_ORACLE_DUMP)
+        s->base.tb->oracle_dump_site = s->pc_start - s->cs_base;
+#endif
         tcg_gen_oracle_top1(dest, target);
     }
 }
@@ -289,6 +292,9 @@ static void gen_oracle_top2(DisasContext *s, TCGv dest)
     if (h264ref_oracle_top2(s->pc_start - s->cs_base, target)) {
         s->base.tb->oracle_top2_pc[0] = target[0];
         s->base.tb->oracle_top2_pc[1] = target[1];
+#if defined(CONFIG_INDIRECT_ORACLE_DUMP)
+        s->base.tb->oracle_dump_site = s->pc_start - s->cs_base;
+#endif
         tcg_gen_oracle_top2(dest, target[0], target[1]);
     }
 }

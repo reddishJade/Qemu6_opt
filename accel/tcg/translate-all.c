@@ -1920,6 +1920,9 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tb->oracle_top2_patch_offset[0] = 0;
     tb->oracle_top2_patch_offset[1] = 0;
 #endif
+#if defined(CONFIG_INDIRECT_ORACLE_DUMP) && defined(__sw_64__)
+    tb->oracle_dump_site = 0;
+#endif
  tb_overflow:
 
 #ifdef CONFIG_PROFILER

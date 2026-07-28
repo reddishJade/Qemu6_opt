@@ -367,6 +367,7 @@ tcg_stats="no"
 indirect_profile="no"
 indirect_oracle_top1="no"
 indirect_oracle_top2="no"
+indirect_oracle_dump="no"
 native_libs="no"
 native_libs_load_debug="no"
 native_libs_call_debug="no"
@@ -1091,6 +1092,10 @@ for opt do
   --enable-indirect-oracle-top2) indirect_oracle_top2="yes"
   ;;
   --disable-indirect-oracle-top2) indirect_oracle_top2="no"
+  ;;
+  --enable-indirect-oracle-dump) indirect_oracle_dump="yes"
+  ;;
+  --disable-indirect-oracle-dump) indirect_oracle_dump="no"
   ;;
   --enable-native-libs) native_libs="yes"
   ;;
@@ -5606,6 +5611,11 @@ if test "$indirect_oracle_top1" = "yes" && \
    test "$indirect_oracle_top2" = "yes" ; then
   error_exit "Oracle Top-1 and Oracle Top-2 cannot be enabled together"
 fi
+if test "$indirect_oracle_dump" = "yes" && \
+   test "$indirect_oracle_top1" != "yes" && \
+   test "$indirect_oracle_top2" != "yes" ; then
+  error_exit "indirect Oracle dump requires Oracle Top-1 or Top-2"
+fi
 if test "$indirect_profile" = "yes" && \
    { test "$indirect_oracle_top1" = "yes" || \
      test "$indirect_oracle_top2" = "yes"; } ; then
@@ -5619,6 +5629,9 @@ if test "$indirect_oracle_top1" = "yes" ; then
 fi
 if test "$indirect_oracle_top2" = "yes" ; then
   echo "CONFIG_INDIRECT_ORACLE_TOP2=y" >> $config_host_mak
+fi
+if test "$indirect_oracle_dump" = "yes" ; then
+  echo "CONFIG_INDIRECT_ORACLE_DUMP=y" >> $config_host_mak
 fi
 if [ "$native_libs" = "yes" ] && \
    [ "$native_libs_load_debug" = "no" ] && \

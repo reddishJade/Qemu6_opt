@@ -509,6 +509,10 @@ struct TranslationBlock {
     target_ulong oracle_top2_pc[2];
     uintptr_t oracle_top2_patch_offset[2];
 #endif
+#if defined(CONFIG_INDIRECT_ORACLE_DUMP) && defined(__sw_64__)
+    /* Guest indirect-branch site used to filter diagnostic host-code dumps. */
+    target_ulong oracle_dump_site;
+#endif
 
     /*
      * Each TB has a NULL-terminated list (jmp_list_head) of incoming jumps.
