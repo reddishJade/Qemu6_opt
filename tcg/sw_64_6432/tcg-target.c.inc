@@ -1980,8 +1980,9 @@ static inline void emit_pbrp_nop_slot(TCGContext *s)
     }
 }
 
-#if defined(CONFIG_INDIRECT_ORACLE_TOP1) || \
-    defined(CONFIG_INDIRECT_ORACLE_TOP2)
+#if defined(CONFIG_RET_OPT) && \
+    (defined(CONFIG_INDIRECT_ORACLE_TOP1) || \
+     defined(CONFIG_INDIRECT_ORACLE_TOP2))
 /*
  * An oracle hit jumps out before goto_ptr.  Reserve the PBRP state-update
  * slot before the oracle comparison so every CALL path prepares its return
