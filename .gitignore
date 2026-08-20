@@ -33,3 +33,15 @@ meson-info/
 *.stamp
 *.stamp-*
 po/*.gmo
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Local / generated files not part of the QEMU source tree
+config-temp/
+.git-submodule-status
+.gdbinit
+changelog
+committed_changes.zip
