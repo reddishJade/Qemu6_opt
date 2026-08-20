@@ -1,67 +1,35 @@
-# 忽略所有内容
-*
+# QEMU source tree: track all source, ignore only build products.
 
-# 不忽略 .gitignore 本身
-!.gitignore
+# In-tree build directories (e.g. build_ret/, build_hyperchain/)
+/build*/
+/build/
 
-# 源代码和文档文件夹
-!accel/
-!include/
-!target/
-!tcg/
-!linux-user/
+# Compiler / linker artifacts
+*.o
+*.a
+*.lo
+*.la
+*.d
+*.gcda
+*.gcno
+*.gcov
+*.so
+*.dylib
+*.dll
+*.exe
 
-# 所有内容不忽略
-!accel/**
-!include/**
-!target/**
-!tcg/**
-!linux-user/**
-
-# 构建和配置文件
-!configure
-!Makefile
-!GNUmakefile
-!meson.build
-!meson_options.txt
-!Kconfig
-!Kconfig.host
-!config.sh
-!git_version.sh
-
-# CI/CD和项目配置
-!.cirrus.yml
-!.travis.yml
-!.patchew.yml
-!.readthedocs.yml
-!.editorconfig
-!.dir-locals.el
-!.exrc
-!.mailmap
-!gitdm.config
-
-# 源代码文件
-!*.c
-!*.h
-!*.hx
-!VERSION
-!version.rc
-!trace-events
-!qemu.nsi
-!qemu.sasl
-
-# 格式化配置文件
-.clang-format
-
-# AI指示
-!AGENTS.md
-!CLAUDE.md
-
-# 文档
-!.doc/
-!.doc/**
-
-# GOT 间接跳转优化验证脚本
-!scripts/
-scripts/*
-!scripts/got-opt-measure.sh
+# Generated configuration and build-system files
+config-host.mak
+config-host.h
+config-target.mak
+config-target.h
+config.status
+config.log
+config-po.mak
+build.ninja
+meson-private/
+meson-logs/
+meson-info/
+*.stamp
+*.stamp-*
+po/*.gmo
