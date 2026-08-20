@@ -1982,7 +1982,8 @@ static inline void emit_pbrp_nop_slot(TCGContext *s)
 
 #if defined(CONFIG_RET_OPT) && \
     (defined(CONFIG_INDIRECT_ORACLE_TOP1) || \
-     defined(CONFIG_INDIRECT_ORACLE_TOP2))
+     defined(CONFIG_INDIRECT_ORACLE_TOP2) || \
+     defined(CONFIG_INDIRECT_HYPERCHAIN))
 /*
  * An oracle hit jumps out before goto_ptr.  Reserve the PBRP state-update
  * slot before the oracle comparison so every CALL path prepares its return
@@ -1996,6 +1997,63 @@ static inline void emit_oracle_pbrp_slot(TCGContext *s)
         emit_pbrp_nop_slot(s);
         s->tb_next_pc = 0;
     }
+}
+#endif
+
+#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+#define HYPERCHAIN_SLOT_SIZE 6
+
+static inline void emit_hyperchain_nop_slot(TCGContext *s)
+{
+    for (int i = 0; i < HYPERCHAIN_SLOT_SIZE; i++) {
+        tcg_out32(s, OPC_NOP);
+    }
+}
+
+void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
+                      int index)
+{
+    uintptr_t rx, rw, p;
+    uintptr_t target;
+    tcg_target_long l0, l1, l2;
+    tcg_insn_unit insn[HYPERCHAIN_SLOT_SIZE];
+    TCGReg rd = TCG_REG_TMP;
+
+    if (index < 0 || index >= INDIRECT_HYPER_MAX_TARGETS ||
+        !tb->hyperchain_patch_offset[index]) {
+        return;
+    }
+
+    rx = (uintptr_t)tb->tc.ptr + tb->hyperchain_patch_offset[index];
+    rw = rx - tcg_splitwx_diff;
+    if (*(uint32_t *)(rw + 4) != OPC_NOP) {
+        return;
+    }
+
+    target = (uintptr_t)target_tb->tc.ptr;
+    l0 = (int16_t)target;
+    p = (target - l0) >> 16;
+    l1 = (int16_t)p;
+    p = (p - l1) >> 16;
+    l2 = (int16_t)p;
+
+    insn[0] = OPC_NOP;
+    insn[1] = OPC_LDI | (rd & 0x1f) << 21 |
+              (TCG_REG_ZERO & 0x1f) << 16 | (l2 & 0xffff);
+    insn[2] = OPC_SLLL_I | (rd & 0x1f) << 21 |
+              (32 & 0xff) << 13 | (rd & 0x1f);
+    insn[3] = OPC_LDIH | (rd & 0x1f) << 21 |
+              (rd & 0x1f) << 16 | (l1 & 0xffff);
+    insn[4] = OPC_LDI | (rd & 0x1f) << 21 |
+              (rd & 0x1f) << 16 | (l0 & 0xffff);
+    insn[5] = OPC_JMP | (TCG_REG_ZERO & 0x1f) << 21 |
+              (rd & 0x1f) << 16;
+
+    for (int i = 0; i < HYPERCHAIN_SLOT_SIZE; i += 2) {
+        uint64_t pair = (uint64_t)insn[i + 1] << 32 | insn[i];
+        qatomic_set((uint64_t *)(rw + i * 4), pair);
+    }
+    flush_idcache_range(rx, rw, sizeof(insn));
 }
 #endif
 
@@ -3030,6 +3088,10 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
     TCGArg a0 = args[0];
     TCGArg a1 = args[1];
     TCGArg a2 = args[2];
+#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+    TCGArg a3 = args[3];
+    TCGArg a4 = args[4];
+#endif
     int c2 = const_args[2];
 
     /* Some operands are defined with "rZ" constraint, a register or
@@ -3226,6 +3288,34 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
         tcg_out_insn_br(s, OPC_BNE, TCG_REG_TMP2, ORACLE_TOP2_SLOT_SIZE);
         s->oracle_top2_patch_offset[1] = tcg_current_code_size(s);
         emit_oracle_top2_nop_slot(s);
+        break;
+#endif
+#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+    case INDEX_op_hyperchain:
+        /*
+         * a0 is the guest target; a1..a4 are learned target PCs.  The
+         * context carries the number of valid entries.  A hit leaves
+         * through a patched host TB slot; fall-through is the ordinary
+         * lookup path.
+         */
+#if defined(CONFIG_RET_OPT)
+        emit_oracle_pbrp_slot(s);
+#endif
+        {
+            TCGArg targets[INDIRECT_HYPER_MAX_TARGETS] = { a1, a2, a3, a4 };
+            unsigned count = MIN(s->hyperchain_target_count,
+                                 INDIRECT_HYPER_MAX_TARGETS);
+
+            for (unsigned i = 0; i < count; i++) {
+                tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_TMP2, targets[i]);
+                tcg_out_insn_simpleReg(s, OPC_SUBL, TCG_REG_TMP2,
+                                       TCG_REG_TMP2, a0);
+                tcg_out_insn_br(s, OPC_BNE, TCG_REG_TMP2,
+                                HYPERCHAIN_SLOT_SIZE);
+                s->hyperchain_patch_offset[i] = tcg_current_code_size(s);
+                emit_hyperchain_nop_slot(s);
+            }
+        }
         break;
 #endif
 
@@ -3866,6 +3956,10 @@ static TCGConstraintSetIndex tcg_target_op_def(TCGOpcode op)
 #endif
 #if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
     case INDEX_op_oracle_top2:
+        return C_O0_I1(r);
+#endif
+#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+    case INDEX_op_hyperchain:
         return C_O0_I1(r);
 #endif
 

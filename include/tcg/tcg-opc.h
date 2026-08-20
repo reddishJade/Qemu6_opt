@@ -212,6 +212,9 @@ DEF(oracle_top1, 0, 1, 1, TCG_OPF_SIDE_EFFECTS | IMPL(TCG_TARGET_HAS_oracle_top1
 #if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
 DEF(oracle_top2, 0, 1, 2, TCG_OPF_SIDE_EFFECTS | IMPL(TCG_TARGET_HAS_oracle_top2))
 #endif
+#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+DEF(hyperchain, 0, 1, 4, TCG_OPF_SIDE_EFFECTS | IMPL(TCG_TARGET_HAS_hyperchain))
+#endif
 
 DEF(plugin_cb_start, 0, 0, 3, TCG_OPF_NOT_PRESENT)
 DEF(plugin_cb_end, 0, 0, 0, TCG_OPF_NOT_PRESENT)

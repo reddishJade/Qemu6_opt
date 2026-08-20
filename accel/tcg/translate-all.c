@@ -1923,6 +1923,14 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 #if defined(CONFIG_INDIRECT_ORACLE_DUMP) && defined(__sw_64__)
     tb->oracle_dump_site = 0;
 #endif
+#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+    tb->hyperchain_site_pc = 0;
+    tb->hyperchain_type = 0;
+    tb->hyperchain_target_count = 0;
+    memset(tb->hyperchain_target_pc, 0, sizeof(tb->hyperchain_target_pc));
+    memset(tb->hyperchain_patch_offset, 0,
+           sizeof(tb->hyperchain_patch_offset));
+#endif
  tb_overflow:
 
 #ifdef CONFIG_PROFILER
@@ -1938,6 +1946,9 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 
     tcg_func_start(tcg_ctx);
 
+#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+    tcg_ctx->hyperchain_target_count = 0;
+#endif
     tcg_ctx->cpu = env_cpu(env);
     gen_intermediate_code(cpu, tb, max_insns);
 
@@ -1966,6 +1977,9 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 #endif
 #if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
     tcg_ctx->oracle_top2_patch_offset = tb->oracle_top2_patch_offset;
+#endif
+#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+    tcg_ctx->hyperchain_patch_offset = tb->hyperchain_patch_offset;
 #endif
 
 #ifdef CONFIG_PROFILER

@@ -133,6 +133,9 @@ typedef enum {
 #if defined(CONFIG_INDIRECT_ORACLE_TOP2)
 #define TCG_TARGET_HAS_oracle_top2      1
 #endif
+#if defined(CONFIG_INDIRECT_HYPERCHAIN)
+#define TCG_TARGET_HAS_hyperchain      1
+#endif
 #define TCG_TARGET_HAS_MEMORY_BSWAP     0
 /* optional instructions */
 void tb_target_set_jmp_target(uintptr_t, uintptr_t, uintptr_t, uintptr_t);
@@ -145,6 +148,10 @@ void patch_oracle_top1(TranslationBlock *tb, TranslationBlock *target_tb);
 #if defined(CONFIG_INDIRECT_ORACLE_TOP2)
 void patch_oracle_top2(TranslationBlock *tb, TranslationBlock *target_tb,
                        int index);
+#endif
+#if defined(CONFIG_INDIRECT_HYPERCHAIN)
+void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
+                      int index);
 #endif
 #ifdef CONFIG_SOFTMMU
 #define TCG_TARGET_NEED_LDST_LABELS

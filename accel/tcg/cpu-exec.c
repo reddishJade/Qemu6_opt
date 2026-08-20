@@ -46,6 +46,9 @@
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
 #include "exec/tcg-stats.h"
 #endif
+#if defined(CONFIG_INDIRECT_HYPERCHAIN)
+#include "exec/indirect-hyper.h"
+#endif
 
 /* -icount align implementation. */
 static int tcg_qemu_tb_exec_num=0;
@@ -575,6 +578,36 @@ static void prepare_oracle_top2(TranslationBlock *tb, CPUState *cpu,
 }
 #endif
 
+#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
+                               target_ulong cs_base, uint32_t flags,
+                               uint32_t cflags)
+{
+    if (!tb->hyperchain_site_pc || !tb->hyperchain_target_count ||
+        qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {
+        return;
+    }
+
+    for (unsigned i = 0; i < tb->hyperchain_target_count; i++) {
+        TranslationBlock *target;
+        target_ulong target_pc = tb->hyperchain_target_pc[i];
+
+        if (!target_pc || !tb->hyperchain_patch_offset[i]) {
+            continue;
+        }
+        target = tb_lookup(cpu, target_pc, cs_base, flags, cflags);
+        if (!target) {
+            target = tb_gen_code(cpu, target_pc, cs_base, flags, cflags);
+        }
+        if (target) {
+            qatomic_set(&cpu->tb_jmp_cache[
+                            tb_jmp_cache_hash_func(target_pc)], target);
+            patch_hyperchain(tb, target, i);
+        }
+    }
+}
+#endif
+
 static inline TranslationBlock *tb_find(CPUState *cpu,
                                         TranslationBlock *last_tb,
                                         int tb_exit, uint32_t cflags)
@@ -606,6 +639,9 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
 #if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
         prepare_oracle_top2(tb, cpu, cs_base, flags, cflags);
 #endif
+#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+        prepare_hyperchain(tb, cpu, cs_base, flags, cflags);
+#endif
 
         mmap_unlock();
 
@@ -633,6 +669,12 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     } else if (tb->oracle_top2_pc[0] && tb->oracle_top2_patch_offset[0]) {
         mmap_lock();
         prepare_oracle_top2(tb, cpu, cs_base, flags, cflags);
+        mmap_unlock();
+#endif
+#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+    } else if (tb->hyperchain_site_pc && tb->hyperchain_target_count) {
+        mmap_lock();
+        prepare_hyperchain(tb, cpu, cs_base, flags, cflags);
         mmap_unlock();
 #endif
     }
