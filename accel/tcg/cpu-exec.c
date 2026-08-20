@@ -595,9 +595,16 @@ static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
         if (!target_pc || !tb->hyperchain_patch_offset[i]) {
             continue;
         }
-        target = tb_lookup(cpu, target_pc, cs_base, flags, cflags);
-        if (!target) {
-            target = tb_gen_code(cpu, target_pc, cs_base, flags, cflags);
+        /* The source TB is not in the cache yet.  Reuse it for a self-loop
+         * instead of recursively translating the same guest block. */
+        if (target_pc == tb->pc && cs_base == tb->cs_base &&
+            flags == tb->flags) {
+            target = tb;
+        } else {
+            target = tb_lookup(cpu, target_pc, cs_base, flags, cflags);
+            if (!target) {
+                target = tb_gen_code(cpu, target_pc, cs_base, flags, cflags);
+            }
         }
         if (target) {
             qatomic_set(&cpu->tb_jmp_cache[
