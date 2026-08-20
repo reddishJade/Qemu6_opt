@@ -35,6 +35,9 @@
 #if defined(CONFIG_INDIRECT_PROFILE)
 #include "exec/indirect-profile.h"
 #endif
+#if defined(CONFIG_INDIRECT_HYPERCHAIN)
+#include "exec/indirect-hyper.h"
+#endif
 
 #if defined(CONFIG_NATIVE_LIBS) || defined(CONFIG_NATIVE_LIBS_CALL_DEBUG)
 #include "x86binary_analysis.h"
@@ -204,6 +207,13 @@ void HELPER(profile_indirect)(target_ulong site_pc, target_ulong target,
                               uint32_t type)
 {
     indirect_profile_record(site_pc, target, type);
+}
+#endif
+#if defined(CONFIG_INDIRECT_HYPERCHAIN)
+void HELPER(hyperchain_observe)(CPUArchState *env, target_ulong site_pc,
+                                target_ulong target, uint32_t type)
+{
+    indirect_hyperchain_record(env_cpu(env), site_pc, target, type);
 }
 #endif
 #if defined(CONFIG_NATIVE_LIBS)
