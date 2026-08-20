@@ -45,3 +45,9 @@ config-temp/
 .gdbinit
 changelog
 committed_changes.zip
+
+# Checked-out submodule contents (not part of this source repository)
+/roms/
+/capstone/
+/dtc/
+/slirp/
