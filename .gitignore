@@ -51,3 +51,6 @@ committed_changes.zip
 /capstone/
 /dtc/
 /slirp/
+
+# Test-only SSH keys (not needed for building; flagged by secret scanning)
+/tests/keys/

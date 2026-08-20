@@ -1,0 +1,56 @@
+# QEMU-oriented clang-format configuration derived from docs/devel/style.rst.
+# Note: some style rules in style.rst (for example declaration placement)
+# cannot be fully enforced by clang-format and still rely on review/checkpatch.
+
+BasedOnStyle: LLVM
+
+# QEMU uses four spaces; tabs are forbidden (except Makefiles, out of scope here).
+IndentWidth: 4
+TabWidth: 8
+UseTab: Never
+
+# Keep lines readable and close to QEMU's preferred width.
+ColumnLimit: 80
+
+# Continuation lines: allow alignment after opening parenthesis, matching style.rst examples.
+AlignAfterOpenBracket: Align
+ContinuationIndentWidth: 4
+
+# Brace style: function opening brace on next line; control blocks on same line.
+BreakBeforeBraces: Linux
+
+# Prefer explicit multi-line blocks/functions instead of one-line compressed forms.
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
+
+# Keep pointer style consistent with common QEMU code style.
+PointerAlignment: Right
+
+# QEMU include order in style.rst:
+# 1) "qemu/osdep.h" 2) system headers 3) other QEMU headers.
+IncludeBlocks: Regroup
+SortIncludes: true
+IncludeCategories:
+  - Regex: '^"qemu/osdep\.h"'
+    Priority: 1
+    SortPriority: 1
+  - Regex: "^<.*>$"
+    Priority: 2
+    SortPriority: 2
+  - Regex: '^".*"'
+    Priority: 3
+    SortPriority: 3
+
+# Keep existing empty lines where possible; avoid over-aggressive regrouping.
+MaxEmptyLinesToKeep: 2
+
+# Avoid accidental reflow of block comments in existing code.
+ReflowComments: false
+
+# Control statements (if, for, while, switch) should not have a space before the opening parenthesis.
+SpaceBeforeParens: ControlStatements
+
+# Macro Alignment
+# AlignEscapedNewlines: Right
