@@ -1608,6 +1608,25 @@ static inline void tb_jmp_unlink(TranslationBlock *dest)
     }
     dest->jmp_list_head = (uintptr_t)NULL;
 
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+    {
+        uintptr_t ptr = dest->pbrp_jmp_list_head;
+
+        while (ptr) {
+            TranslationBlock *src = (TranslationBlock *)ptr;
+            uintptr_t next = src->pbrp_jmp_list_next;
+
+            if (src->pbrp_jmp_dest == (uintptr_t)dest) {
+                patch_pbrp_reset(src);
+                src->pbrp_jmp_dest = 0;
+                src->pbrp_jmp_list_next = 0;
+            }
+            ptr = next;
+        }
+        dest->pbrp_jmp_list_head = 0;
+    }
+#endif
+
     qemu_spin_unlock(&dest->jmp_lock);
 }
 
@@ -1909,6 +1928,9 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
     tcg_ctx->tb_next_pc = 0;
     tb->jmp_to_next_offset = 0;
+    tb->pbrp_jmp_dest = 0;
+    tb->pbrp_jmp_list_next = 0;
+    tb->pbrp_jmp_list_head = 0;
 #endif
 #if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
     tb->oracle_top1_pc = 0;

@@ -499,6 +499,11 @@ struct TranslationBlock {
 #if defined(CONFIG_RET_OPT) && defined(__sw_64__)
     /* Host patch offset (from tb->tc.ptr) for pbrp chaining.  */
     uintptr_t jmp_to_next_offset;
+    /* One outgoing PBRP edge per source TB and an incoming edge list on the
+     * target TB.  These let invalidation reset absolute host-TB pointers. */
+    uintptr_t pbrp_jmp_dest;
+    uintptr_t pbrp_jmp_list_next;
+    uintptr_t pbrp_jmp_list_head;
 #endif
 #if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
     /* Workload-specific oracle target and its host-code patch slot. */

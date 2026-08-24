@@ -2129,6 +2129,26 @@ static size_t generate_patch_code(uintptr_t jmp_addr, const target_components_t 
     return jmp - jmp_addr;  /* total bytes written */
 }
 
+void patch_pbrp_reset(TranslationBlock *tb)
+{
+    patch_addresses_t addrs;
+    tcg_insn_unit nops[PBRP_NOP_SLOT_SIZE];
+
+    if (!tb->jmp_to_next_offset) {
+        return;
+    }
+
+    addrs = get_patch_addresses(tb);
+    for (int i = 0; i < PBRP_NOP_SLOT_SIZE; i++) {
+        nops[i] = OPC_NOP;
+    }
+    for (int i = 0; i < PBRP_NOP_SLOT_SIZE; i += 2) {
+        write_insn_pair((uintptr_t *)(addrs.jmp_rw + i * 4),
+                        nops[i], nops[i + 1]);
+    }
+    flush_idcache_range(addrs.jmp_rx, addrs.jmp_rw, sizeof(nops));
+}
+
 /*
  * Patch the PBRP NOP slot to load gpc/hpc into env.
  *
@@ -2142,8 +2162,15 @@ void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb)
 
     patch_addresses_t addrs = get_patch_addresses(tb);
 
+    qemu_spin_lock(&next_tb->jmp_lock);
+    if ((next_tb->cflags & CF_INVALID) || tb->pbrp_jmp_dest) {
+        qemu_spin_unlock(&next_tb->jmp_lock);
+        return;
+    }
+
     /* Skip if already patched (second insn is no longer NOP) */
     if (*(uint32_t *)(addrs.jmp_rw + 4) != OPC_NOP) {
+        qemu_spin_unlock(&next_tb->jmp_lock);
         return;
     }
 
@@ -2158,6 +2185,11 @@ void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb)
     code_len += generate_patch_code(addrs.jmp_rw + code_len, &comp, hpc_offset);
 
     flush_idcache_range(addrs.jmp_rx, addrs.jmp_rw, code_len);
+
+    tb->pbrp_jmp_dest = (uintptr_t)next_tb;
+    tb->pbrp_jmp_list_next = next_tb->pbrp_jmp_list_head;
+    next_tb->pbrp_jmp_list_head = (uintptr_t)tb;
+    qemu_spin_unlock(&next_tb->jmp_lock);
 }
 #endif
 
