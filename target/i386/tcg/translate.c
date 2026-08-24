@@ -218,19 +218,27 @@ static void gen_eob(DisasContext *s);
 static void gen_jr(DisasContext *s, TCGv dest);
 
 #if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
-static void gen_hyperchain(DisasContext *s, TCGv dest, uint32_t type)
+static bool gen_hyperchain(DisasContext *s, TCGv dest, uint32_t type)
 {
     target_ulong site = s->pc_start - s->cs_base;
     target_ulong targets[INDIRECT_HYPER_MAX_TARGETS] = {};
+    IndirectHyperPlan plan;
     unsigned count;
 
+    plan = indirect_hyperchain_get_plan(site, type, targets, &count);
+    if (plan == INDIRECT_HYPER_DISABLED) {
+        return false;
+    }
+    if (plan != INDIRECT_HYPER_LINKED) {
+        return true;
+    }
+
     /*
-     * The first implementation keeps one dynamic Hyperchain descriptor per
-     * TB.  Other indirect exits in the same TB retain the normal lookup path.
+     * Keep one dynamic Hyperchain descriptor per TB.  Other indirect exits
+     * in the same TB retain observation until their own policy converges.
      */
-    if (s->base.tb->hyperchain_site_pc ||
-        !indirect_hyperchain_get_targets(site, type, targets, &count)) {
-        return;
+    if (s->base.tb->hyperchain_site_pc) {
+        return true;
     }
 
     s->base.tb->hyperchain_site_pc = site;
@@ -239,6 +247,7 @@ static void gen_hyperchain(DisasContext *s, TCGv dest, uint32_t type)
     memcpy(s->base.tb->hyperchain_target_pc, targets, sizeof(targets));
     tcg_gen_hyperchain(dest, count, targets[0], targets[1],
                        targets[2], targets[3]);
+    return true;
 }
 #endif
 
@@ -6348,10 +6357,11 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_const_i32(INDIRECT_PROFILE_CALL));
 #endif
 #if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
-            gen_hyperchain(s, s->T0, INDIRECT_HYPER_CALL);
-            gen_helper_hyperchain_observe(
-                cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0,
-                tcg_const_i32(INDIRECT_HYPER_CALL));
+            if (gen_hyperchain(s, s->T0, INDIRECT_HYPER_CALL)) {
+                gen_helper_hyperchain_observe(
+                    cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0,
+                    tcg_const_i32(INDIRECT_HYPER_CALL));
+            }
 #endif
             gen_jr(s, s->T0);
             break;
@@ -6389,10 +6399,11 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_const_i32(INDIRECT_PROFILE_JMP));
 #endif
 #if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
-            gen_hyperchain(s, s->T0, INDIRECT_HYPER_JMP);
-            gen_helper_hyperchain_observe(
-                cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0,
-                tcg_const_i32(INDIRECT_HYPER_JMP));
+            if (gen_hyperchain(s, s->T0, INDIRECT_HYPER_JMP)) {
+                gen_helper_hyperchain_observe(
+                    cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0,
+                    tcg_const_i32(INDIRECT_HYPER_JMP));
+            }
 #endif
             gen_jr(s, s->T0);
             break;

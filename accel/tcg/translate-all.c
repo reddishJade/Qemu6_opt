@@ -1627,6 +1627,27 @@ static inline void tb_jmp_unlink(TranslationBlock *dest)
     }
 #endif
 
+#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+    {
+        uintptr_t ptr = dest->hyperchain_jmp_list_head;
+
+        while (ptr) {
+            TranslationBlock *src =
+                (TranslationBlock *)(ptr & ~(uintptr_t)3);
+            unsigned index = ptr & 3;
+            uintptr_t next = src->hyperchain_jmp_list_next[index];
+
+            if (src->hyperchain_jmp_dest[index] == (uintptr_t)dest) {
+                patch_hyperchain_reset(src, index);
+                src->hyperchain_jmp_dest[index] = 0;
+                src->hyperchain_jmp_list_next[index] = 0;
+            }
+            ptr = next;
+        }
+        dest->hyperchain_jmp_list_head = 0;
+    }
+#endif
+
     qemu_spin_unlock(&dest->jmp_lock);
 }
 
@@ -1952,6 +1973,11 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     memset(tb->hyperchain_target_pc, 0, sizeof(tb->hyperchain_target_pc));
     memset(tb->hyperchain_patch_offset, 0,
            sizeof(tb->hyperchain_patch_offset));
+    tb->hyperchain_jmp_list_head = 0;
+    memset(tb->hyperchain_jmp_dest, 0,
+           sizeof(tb->hyperchain_jmp_dest));
+    memset(tb->hyperchain_jmp_list_next, 0,
+           sizeof(tb->hyperchain_jmp_list_next));
 #endif
  tb_overflow:
 

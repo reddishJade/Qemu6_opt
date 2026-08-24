@@ -15,24 +15,30 @@ enum {
     INDIRECT_HYPER_JMP = 2,
 };
 
+typedef enum IndirectHyperPlan {
+    INDIRECT_HYPER_DISABLED,
+    INDIRECT_HYPER_OBSERVE,
+    INDIRECT_HYPER_LINKED,
+} IndirectHyperPlan;
+
 #if defined(CONFIG_INDIRECT_HYPERCHAIN)
-bool indirect_hyperchain_get_targets(uint64_t site_pc, uint32_t type,
-                                     target_ulong targets[],
-                                     unsigned *count);
+IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
+                                               uint32_t type,
+                                               target_ulong targets[],
+                                               unsigned *count);
 void indirect_hyperchain_record(struct CPUState *cpu, uint64_t site_pc,
                                 target_ulong target, uint32_t type);
 void indirect_hyperchain_dump(void);
 #else
-static inline bool indirect_hyperchain_get_targets(uint64_t site_pc,
-                                                   uint32_t type,
-                                                   target_ulong targets[],
-                                                   unsigned *count)
+static inline IndirectHyperPlan
+indirect_hyperchain_get_plan(uint64_t site_pc, uint32_t type,
+                             target_ulong targets[], unsigned *count)
 {
     (void)site_pc;
     (void)type;
     (void)targets;
     *count = 0;
-    return false;
+    return INDIRECT_HYPER_DISABLED;
 }
 
 static inline void indirect_hyperchain_record(struct CPUState *cpu,

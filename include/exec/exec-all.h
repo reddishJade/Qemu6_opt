@@ -528,6 +528,11 @@ struct TranslationBlock {
     uint32_t hyperchain_target_count;
     target_ulong hyperchain_target_pc[INDIRECT_HYPER_MAX_TARGETS];
     uintptr_t hyperchain_patch_offset[INDIRECT_HYPER_MAX_TARGETS];
+    /* Hyperchain slots are tagged by their two-bit index in the target TB's
+     * incoming edge list. */
+    uintptr_t hyperchain_jmp_list_head;
+    uintptr_t hyperchain_jmp_dest[INDIRECT_HYPER_MAX_TARGETS];
+    uintptr_t hyperchain_jmp_list_next[INDIRECT_HYPER_MAX_TARGETS];
 #endif
 
     /*

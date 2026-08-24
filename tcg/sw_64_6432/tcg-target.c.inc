@@ -2010,6 +2010,28 @@ static inline void emit_hyperchain_nop_slot(TCGContext *s)
     }
 }
 
+void patch_hyperchain_reset(TranslationBlock *tb, int index)
+{
+    tcg_insn_unit nops[HYPERCHAIN_SLOT_SIZE];
+    uintptr_t rx, rw;
+
+    if (index < 0 || index >= INDIRECT_HYPER_MAX_TARGETS ||
+        !tb->hyperchain_patch_offset[index]) {
+        return;
+    }
+
+    rx = (uintptr_t)tb->tc.ptr + tb->hyperchain_patch_offset[index];
+    rw = rx - tcg_splitwx_diff;
+    for (int i = 0; i < HYPERCHAIN_SLOT_SIZE; i++) {
+        nops[i] = OPC_NOP;
+    }
+    for (int i = 0; i < HYPERCHAIN_SLOT_SIZE; i += 2) {
+        uint64_t pair = (uint64_t)nops[i + 1] << 32 | nops[i];
+        qatomic_set((uint64_t *)(rw + i * 4), pair);
+    }
+    flush_idcache_range(rx, rw, sizeof(nops));
+}
+
 void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
                       int index)
 {
@@ -2024,9 +2046,17 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
         return;
     }
 
+    qemu_spin_lock(&target_tb->jmp_lock);
+    if ((target_tb->cflags & CF_INVALID) ||
+        tb->hyperchain_jmp_dest[index]) {
+        qemu_spin_unlock(&target_tb->jmp_lock);
+        return;
+    }
+
     rx = (uintptr_t)tb->tc.ptr + tb->hyperchain_patch_offset[index];
     rw = rx - tcg_splitwx_diff;
     if (*(uint32_t *)(rw + 4) != OPC_NOP) {
+        qemu_spin_unlock(&target_tb->jmp_lock);
         return;
     }
 
@@ -2054,6 +2084,12 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
         qatomic_set((uint64_t *)(rw + i * 4), pair);
     }
     flush_idcache_range(rx, rw, sizeof(insn));
+
+    tb->hyperchain_jmp_dest[index] = (uintptr_t)target_tb;
+    tb->hyperchain_jmp_list_next[index] =
+        target_tb->hyperchain_jmp_list_head;
+    target_tb->hyperchain_jmp_list_head = (uintptr_t)tb | index;
+    qemu_spin_unlock(&target_tb->jmp_lock);
 }
 #endif
 

@@ -153,6 +153,7 @@ void patch_oracle_top2(TranslationBlock *tb, TranslationBlock *target_tb,
 #if defined(CONFIG_INDIRECT_HYPERCHAIN)
 void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
                       int index);
+void patch_hyperchain_reset(TranslationBlock *tb, int index);
 #endif
 #ifdef CONFIG_SOFTMMU
 #define TCG_TARGET_NEED_LDST_LABELS

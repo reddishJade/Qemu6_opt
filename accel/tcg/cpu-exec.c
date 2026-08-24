@@ -591,9 +591,9 @@ static void prepare_oracle_top2(TranslationBlock *tb, CPUState *cpu,
 #endif
 
 #if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
-static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
-                               target_ulong cs_base, uint32_t flags,
-                               uint32_t cflags)
+static void prepare_hyperchain_depth(TranslationBlock *tb, CPUState *cpu,
+                                     target_ulong cs_base, uint32_t flags,
+                                     uint32_t cflags, unsigned depth)
 {
     if (!tb->hyperchain_site_pc || !tb->hyperchain_target_count ||
         qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {
@@ -616,6 +616,14 @@ static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
             target = tb_lookup(cpu, target_pc, cs_base, flags, cflags);
             if (!target) {
                 target = tb_gen_code(cpu, target_pc, cs_base, flags, cflags);
+                if (target && target != tb &&
+                    depth < PRE_TRANSLATE_MAX_DEPTH) {
+                    /* A target generated here bypasses tb_find() just like a
+                     * pretranslated TB.  Prepare its own learned slots before
+                     * this source can jump to it directly. */
+                    prepare_hyperchain_depth(target, cpu, cs_base, flags,
+                                             cflags, depth + 1);
+                }
             }
         }
         if (target) {
@@ -624,6 +632,13 @@ static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
             patch_hyperchain(tb, target, i);
         }
     }
+}
+
+static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
+                               target_ulong cs_base, uint32_t flags,
+                               uint32_t cflags)
+{
+    prepare_hyperchain_depth(tb, cpu, cs_base, flags, cflags, 0);
 }
 #endif
 
