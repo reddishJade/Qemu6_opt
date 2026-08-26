@@ -1,8 +1,8 @@
 /* Online feedback state for the QEMU TCG indirect-branch Hyperchaining
  * experiment.  The module deliberately keeps the policy small: it learns a
  * bounded set of targets for a site, marks the site linked after a short
- * warm-up, and asks the current CPU to retranslate the source page.  There is
- * no offline profile and no separate prediction helper on a linked hit path.
+ * warm-up, and asks the current CPU to retranslate the source page.  Linked
+ * hits execute a patched host-TB jump from the translated compare chain.
  */
 #include "qemu/osdep.h"
 #include "cpu.h"
@@ -12,7 +12,8 @@
 
 #define INDIRECT_HYPER_BUCKETS 4096
 #define INDIRECT_HYPER_LEARN_THRESHOLD 32
-#define INDIRECT_HYPER_MIN_TRACKED_PERCENT 90
+#define INDIRECT_HYPER_ACTIVE_TARGETS 2
+#define INDIRECT_HYPER_MIN_TRACKED_PERCENT 95
 #define INDIRECT_HYPER_FALLBACK_DISABLE_THRESHOLD 64
 
 typedef struct HyperTarget {
@@ -113,7 +114,7 @@ static int hyper_target_cmp(const void *a, const void *b)
 
 static int hyper_target_index(const HyperSite *site, target_ulong target)
 {
-    for (unsigned i = 0; i < ARRAY_SIZE(site->targets); i++) {
+    for (unsigned i = 0; i < INDIRECT_HYPER_ACTIVE_TARGETS; i++) {
         if (site->targets[i].count && site->targets[i].target == target) {
             return i;
         }
@@ -123,7 +124,7 @@ static int hyper_target_index(const HyperSite *site, target_ulong target)
 
 static int hyper_empty_index(const HyperSite *site)
 {
-    for (unsigned i = 0; i < ARRAY_SIZE(site->targets); i++) {
+    for (unsigned i = 0; i < INDIRECT_HYPER_ACTIVE_TARGETS; i++) {
         if (!site->targets[i].count) {
             return i;
         }
@@ -142,6 +143,9 @@ IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
     unsigned n = 0;
 
     *count = 0;
+    if (type != INDIRECT_HYPER_CALL) {
+        return INDIRECT_HYPER_DISABLED;
+    }
     indirect_hyperchain_init();
     indirect_hyperchain_check_fork();
     qemu_mutex_lock(&hyper_lock);
@@ -157,7 +161,7 @@ IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
 
     memcpy(sorted, site->targets, sizeof(sorted));
     qsort(sorted, ARRAY_SIZE(sorted), sizeof(sorted[0]), hyper_target_cmp);
-    for (unsigned i = 0; i < ARRAY_SIZE(sorted); i++) {
+    for (unsigned i = 0; i < INDIRECT_HYPER_ACTIVE_TARGETS; i++) {
         if (!sorted[i].count) {
             break;
         }
@@ -178,6 +182,9 @@ void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
     bool retranslate = false;
     int index;
 
+    if (type != INDIRECT_HYPER_CALL) {
+        return;
+    }
     indirect_hyperchain_init();
     indirect_hyperchain_check_fork();
     qemu_mutex_lock(&hyper_lock);
