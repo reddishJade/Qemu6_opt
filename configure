@@ -365,7 +365,7 @@ pre_translate_log="no"
 fast_ret="no"
 tcg_stats="no"
 indirect_profile="no"
-indirect_hyperchain="no"
+online_hyperchain="no"
 indirect_oracle_top1="no"
 indirect_oracle_top2="no"
 indirect_oracle_dump="no"
@@ -1090,9 +1090,9 @@ for opt do
   ;;
   --disable-indirect-profile) indirect_profile="no"
   ;;
-  --enable-indirect-hyperchain) indirect_hyperchain="yes"
+  --enable-online-hyperchain) online_hyperchain="yes"
   ;;
-  --disable-indirect-hyperchain) indirect_hyperchain="no"
+  --disable-online-hyperchain) online_hyperchain="no"
   ;;
   --enable-indirect-oracle-top1) indirect_oracle_top1="yes"
   ;;
@@ -5633,16 +5633,16 @@ if test "$indirect_profile" = "yes" && \
      test "$indirect_oracle_top2" = "yes"; } ; then
   error_exit "indirect profiling and indirect Oracle cannot be enabled together"
 fi
-if test "$indirect_hyperchain" = "yes" && \
+if test "$online_hyperchain" = "yes" && \
    { test "$indirect_oracle_top1" = "yes" || \
      test "$indirect_oracle_top2" = "yes"; } ; then
-  error_exit "indirect Hyperchaining and indirect Oracle cannot be enabled together"
+  error_exit "online Hyperchaining and indirect Oracle cannot be enabled together"
 fi
 if test "$indirect_profile" = "yes" ; then
   echo "CONFIG_INDIRECT_PROFILE=y" >> $config_host_mak
 fi
-if test "$indirect_hyperchain" = "yes" ; then
-  echo "CONFIG_INDIRECT_HYPERCHAIN=y" >> $config_host_mak
+if test "$online_hyperchain" = "yes" ; then
+  echo "CONFIG_ONLINE_HYPERCHAIN=y" >> $config_host_mak
 fi
 if test "$indirect_oracle_top1" = "yes" ; then
   echo "CONFIG_INDIRECT_ORACLE_TOP1=y" >> $config_host_mak

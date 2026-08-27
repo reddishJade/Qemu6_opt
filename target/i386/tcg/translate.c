@@ -36,7 +36,7 @@
 #if defined(CONFIG_INDIRECT_PROFILE)
 #include "exec/indirect-profile.h"
 #endif
-#if defined(CONFIG_INDIRECT_HYPERCHAIN)
+#if defined(CONFIG_ONLINE_HYPERCHAIN)
 #include "exec/indirect-hyper.h"
 #endif
 
@@ -217,7 +217,7 @@ typedef struct DisasContext {
 static void gen_eob(DisasContext *s);
 static void gen_jr(DisasContext *s, TCGv dest);
 
-#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
 static bool gen_hyperchain(DisasContext *s, TCGv dest, uint32_t type)
 {
     target_ulong site = s->pc_start - s->cs_base;
@@ -6356,7 +6356,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_const_tl(s->pc_start - s->cs_base), s->T0,
                 tcg_const_i32(INDIRECT_PROFILE_CALL));
 #endif
-#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
             if (gen_hyperchain(s, s->T0, INDIRECT_HYPER_CALL)) {
                 gen_helper_hyperchain_observe(
                     cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0,
@@ -6398,7 +6398,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_const_tl(s->pc_start - s->cs_base), s->T0,
                 tcg_const_i32(INDIRECT_PROFILE_JMP));
 #endif
-#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
             if (gen_hyperchain(s, s->T0, INDIRECT_HYPER_JMP)) {
                 gen_helper_hyperchain_observe(
                     cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0,

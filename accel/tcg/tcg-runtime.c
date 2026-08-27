@@ -35,7 +35,7 @@
 #if defined(CONFIG_INDIRECT_PROFILE)
 #include "exec/indirect-profile.h"
 #endif
-#if defined(CONFIG_INDIRECT_HYPERCHAIN)
+#if defined(CONFIG_ONLINE_HYPERCHAIN)
 #include "exec/indirect-hyper.h"
 #endif
 
@@ -209,7 +209,7 @@ void HELPER(profile_indirect)(target_ulong site_pc, target_ulong target,
     indirect_profile_record(site_pc, target, type);
 }
 #endif
-#if defined(CONFIG_INDIRECT_HYPERCHAIN)
+#if defined(CONFIG_ONLINE_HYPERCHAIN)
 void HELPER(hyperchain_observe)(CPUArchState *env, target_ulong site_pc,
                                 target_ulong target, uint32_t type)
 {

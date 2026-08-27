@@ -1627,7 +1627,7 @@ static inline void tb_jmp_unlink(TranslationBlock *dest)
     }
 #endif
 
-#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
     {
         uintptr_t ptr = dest->hyperchain_jmp_list_head;
 
@@ -1966,7 +1966,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 #if defined(CONFIG_INDIRECT_ORACLE_DUMP) && defined(__sw_64__)
     tb->oracle_dump_site = 0;
 #endif
-#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
     tb->hyperchain_site_pc = 0;
     tb->hyperchain_type = 0;
     tb->hyperchain_target_count = 0;
@@ -1994,7 +1994,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 
     tcg_func_start(tcg_ctx);
 
-#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
     tcg_ctx->hyperchain_target_count = 0;
 #endif
     tcg_ctx->cpu = env_cpu(env);
@@ -2026,7 +2026,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 #if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
     tcg_ctx->oracle_top2_patch_offset = tb->oracle_top2_patch_offset;
 #endif
-#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
     tcg_ctx->hyperchain_patch_offset = tb->hyperchain_patch_offset;
 #endif
 

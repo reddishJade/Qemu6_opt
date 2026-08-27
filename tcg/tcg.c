@@ -1755,7 +1755,7 @@ bool tcg_op_supported(TCGOpcode op)
     case INDEX_op_oracle_top2:
         return TCG_TARGET_HAS_oracle_top2;
 #endif
-#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
     case INDEX_op_hyperchain:
         return TCG_TARGET_HAS_hyperchain;
 #endif

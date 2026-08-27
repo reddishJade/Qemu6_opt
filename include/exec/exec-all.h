@@ -522,7 +522,7 @@ struct TranslationBlock {
     /* Guest indirect-branch site used to filter diagnostic host-code dumps. */
     target_ulong oracle_dump_site;
 #endif
-#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
 #ifndef INDIRECT_HYPER_MAX_TARGETS
 #define INDIRECT_HYPER_MAX_TARGETS 4
 #endif

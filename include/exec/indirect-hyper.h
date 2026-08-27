@@ -21,7 +21,7 @@ typedef enum IndirectHyperPlan {
     INDIRECT_HYPER_LINKED,
 } IndirectHyperPlan;
 
-#if defined(CONFIG_INDIRECT_HYPERCHAIN)
+#if defined(CONFIG_ONLINE_HYPERCHAIN)
 IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
                                                uint32_t type,
                                                target_ulong targets[],

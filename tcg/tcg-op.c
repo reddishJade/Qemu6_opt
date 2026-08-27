@@ -2753,7 +2753,7 @@ void tcg_gen_oracle_top2(TCGv dest, target_ulong target1,
     tcg_gen_op3(INDEX_op_oracle_top2, tcgv_i64_arg(dest), target1, target2);
 }
 #endif
-#if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
 void tcg_gen_hyperchain(TCGv dest, unsigned count,
                         target_ulong target1, target_ulong target2,
                         target_ulong target3, target_ulong target4)

@@ -13,7 +13,7 @@ tcg_ss.add(when: 'CONFIG_SOFTMMU', if_false: files('user-exec-stub.c'))
 tcg_ss.add(when: 'CONFIG_PLUGIN', if_true: [files('plugin-gen.c'), libdl])
 tcg_ss.add(when: 'CONFIG_TCG_STATS', if_true: files('tcg-stats.c'))
 tcg_ss.add(when: 'CONFIG_INDIRECT_PROFILE', if_true: files('indirect-profile.c'))
-tcg_ss.add(when: 'CONFIG_INDIRECT_HYPERCHAIN', if_true: files('indirect-hyper.c'))
+tcg_ss.add(when: 'CONFIG_ONLINE_HYPERCHAIN', if_true: files('indirect-hyper.c'))
 specific_ss.add_all(when: 'CONFIG_TCG', if_true: tcg_ss)
 
 specific_ss.add(when: ['CONFIG_SOFTMMU', 'CONFIG_TCG'], if_true: files(

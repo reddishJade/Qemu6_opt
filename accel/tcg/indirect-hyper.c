@@ -259,7 +259,7 @@ static const char *hyper_type_name(uint32_t type)
 
 void indirect_hyperchain_dump(void)
 {
-    const char *configured_path = getenv("QEMU_INDIRECT_HYPERCHAIN_OUT");
+    const char *configured_path = getenv("QEMU_ONLINE_HYPERCHAIN_OUT");
     g_autofree char *expanded_path = NULL;
     FILE *out;
 
