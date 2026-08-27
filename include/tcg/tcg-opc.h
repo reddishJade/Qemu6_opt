@@ -203,7 +203,7 @@ DEF(goto_tb, 0, 0, 1, TCG_OPF_BB_EXIT | TCG_OPF_BB_END)
 DEF(goto_ptr, 0, 1, 0,
     TCG_OPF_BB_EXIT | TCG_OPF_BB_END | IMPL(TCG_TARGET_HAS_goto_ptr))
 
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
 DEF(ret, 0, 1, 0, TCG_OPF_BB_EXIT | TCG_OPF_BB_END | IMPL(TCG_TARGET_HAS_ret))
 #endif
 #if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)

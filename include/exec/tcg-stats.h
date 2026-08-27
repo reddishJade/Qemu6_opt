@@ -30,7 +30,7 @@
 #define TCG_STATS_DEPTH 1
 #endif
 
-#if defined(CONFIG_PRETR_LOG)
+#if defined(CONFIG_PRE_TRANSLATE_LOG)
 /*
  * Pre-translation depth histogram bucket count.
  * Buckets:
@@ -78,10 +78,10 @@ typedef struct TCGStats {
     uint64_t tb_gen_count;
     uint64_t tb_exec_count;
 
-#if defined(CONFIG_PRETR_LOG)
+#if defined(CONFIG_PRE_TRANSLATE_LOG)
     /*
      * --- Pre-translation category ---
-     * Enabled only when CONFIG_PRETR_LOG is also set.
+     * Enabled only when CONFIG_PRE_TRANSLATE_LOG is also set.
      */
     uint64_t tb_pre_translate_count;
     uint64_t pre_translate_calls;
@@ -99,7 +99,7 @@ typedef struct TCGStats {
 #define TCG_STATS_ENABLED 0
 #endif
 
-#if TCG_STATS_ENABLED && defined(CONFIG_PRETR_LOG)
+#if TCG_STATS_ENABLED && defined(CONFIG_PRE_TRANSLATE_LOG)
 #define TCG_STATS_DEPTH_ENABLED 1
 #else
 #define TCG_STATS_DEPTH_ENABLED 0
@@ -165,7 +165,7 @@ TCGStats tcg_stats_get(void);
 void tcg_stats_dump(void);
 double tcg_lookup_success_rate(void);
 double tcg_cache_hit_rate(void);
-#if defined(CONFIG_PRETR_LOG)
+#if defined(CONFIG_PRE_TRANSLATE_LOG)
 double tcg_pre_translate_avg_depth(void);
 double tcg_pre_translate_hit_rate(void);
 #endif
@@ -180,7 +180,7 @@ static inline TCGStats tcg_stats_get(void)
 static inline void tcg_stats_dump(void) {}
 static inline double tcg_lookup_success_rate(void) { return 0.0; }
 static inline double tcg_cache_hit_rate(void) { return 0.0; }
-#if defined(CONFIG_PRETR_LOG)
+#if defined(CONFIG_PRE_TRANSLATE_LOG)
 static inline double tcg_pre_translate_avg_depth(void) { return 0.0; }
 static inline double tcg_pre_translate_hit_rate(void) { return 0.0; }
 #endif

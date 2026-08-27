@@ -2764,7 +2764,7 @@ void tcg_gen_hyperchain(TCGv dest, unsigned count,
 }
 #endif
 
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
 void tcg_gen_ret(TCGv dest) {
     if (TCG_TARGET_HAS_ret && !qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {
         tcg_gen_op1(INDEX_op_ret, tcgv_i64_arg(dest));

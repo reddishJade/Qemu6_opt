@@ -2518,7 +2518,7 @@ static inline void gen_goto_tb(DisasContext *s, int tb_num, target_ulong eip)
     }
 }
 
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
 static inline void gen_ret(DisasContext *s, TCGv dest) {
     gen_update_cc_op(s);
     tcg_gen_ret(dest);
@@ -6338,7 +6338,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_gen_ext16u_tl(s->T0, s->T0);
             }
             next_eip = s->pc - s->cs_base;
-#if (defined(CONFIG_RET_OPT) || defined(CONFIG_PRETR_OPT)) && defined(__sw_64__)
+#if (defined(CONFIG_FAST_RET) || defined(CONFIG_PRE_TRANSLATE)) && defined(__sw_64__)
             s->base.tb->next_pc = next_eip;
 #endif
             tcg_gen_movi_tl(s->T1, next_eip);
@@ -7864,7 +7864,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         ot = gen_pop_T0(s);
         gen_pop_update(s, ot);
 #endif
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
         gen_op_jmp_v(s->T0);
         gen_bnd_jmp(s);
 #if defined(CONFIG_INDIRECT_PROFILE)
@@ -7940,7 +7940,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tval = (int16_t)insn_get(env, s, MO_16);
             }
             next_eip = s->pc - s->cs_base;
-#if (defined(CONFIG_RET_OPT) || defined(CONFIG_PRETR_OPT)) && defined(__sw_64__)
+#if (defined(CONFIG_FAST_RET) || defined(CONFIG_PRE_TRANSLATE)) && defined(__sw_64__)
             s->base.tb->next_pc = next_eip;
 #endif
             tval += next_eip;

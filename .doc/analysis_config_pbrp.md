@@ -1,13 +1,18 @@
-# CONFIG_RET_OPT 分析
+# CONFIG_PBRP 分析
 
 ## 概述
 
-`CONFIG_RET_OPT` 是一项针对 **sw_64** 架构的 QEMU TCG 优化，实现了**基于预翻译的返回路径预测（Pre-translation Based Return Path Prediction, PBRP）**。
+PBRP（Pre-translation Based Return Path Prediction）由两个边界清晰的组件组成：
+
+- `CONFIG_PRE_TRANSLATE`：沿 `next_pc` 提前翻译后续 TB，可独立启用。
+- `CONFIG_FAST_RET`：为返回路径生成并修补快速跳转，绝对依赖 `CONFIG_PRE_TRANSLATE`。
+
+完整 PBRP 通过 `--enable-pbrp` 启用，同时生成 `CONFIG_PBRP=y`、`CONFIG_PRE_TRANSLATE=y` 和 `CONFIG_FAST_RET=y`。`--enable-pre-translate` 可单独使用；直接使用 `--enable-fast-ret` 时必须同时启用 `--enable-pre-translate`，否则 configure 报错。
 
 **核心思想**：在翻译 x86 `CALL` 指令时，记录返回地址（`next_pc`）；在翻译 x86 `RET` 指令时，生成特殊的 `op_ret` TCG 操作。后端为 `op_ret` 生成一段内联比较代码：如果实际返回地址等于预期的 `next_pc`，则直接跳转到对应的 host TB，跳过 `lookup_tb_ptr` 的开销。
 
 > [!IMPORTANT]
-> 所有代码均受 `#if defined(CONFIG_RET_OPT) && defined(__sw_64__)` 保护，仅在 sw_64 平台启用 `--enable-ret-opt` 时生效。
+> Fast-ret 代码受 `#if defined(CONFIG_FAST_RET) && defined(__sw_64__)` 保护；预翻译代码受 `CONFIG_PRE_TRANSLATE` 保护。二者不依赖 Hyperchain。
 
 ---
 
@@ -15,13 +20,13 @@
 
 ### 1.1 configure 脚本
 
-| 位置                                                                    | 作用                                          |
-| ----------------------------------------------------------------------- | --------------------------------------------- |
-| [configure:365](file:///d:/Qemu6/Qemu6_opt/configure#L365)              | 默认值 `ret_opt="no"`                         |
-| [configure:1072-1074](file:///d:/Qemu6/Qemu6_opt/configure#L1072-L1074) | `--enable-ret-opt` / `--disable-ret-opt` 开关 |
-| [configure:5580-5582](file:///d:/Qemu6/Qemu6_opt/configure#L5580-L5582) | 生成 `CONFIG_RET_OPT=y` 到 `config-host.mak`  |
+| 开关 | 生成配置 | 约束 |
+| ---- | -------- | ---- |
+| `--enable-pre-translate` | `CONFIG_PRE_TRANSLATE=y` | 可独立启用 |
+| `--enable-fast-ret` | `CONFIG_FAST_RET=y`、`CONFIG_PBRP=y` | 要求同时启用 pre-translate |
+| `--enable-pbrp` | `CONFIG_PBRP=y`、`CONFIG_PRE_TRANSLATE=y`、`CONFIG_FAST_RET=y` | 完整 PBRP |
 
-**依赖关系**：启用 `ret_opt` 会**隐式启用** `pretr_opt`（configure:5581 `pretr_opt="yes"`），因为 PBRP 依赖 `CONFIG_PRETR_OPT` 的预翻译链来提前生成后续 TB。
+**依赖关系**：`fast_ret -> pre_translate`。依赖只沿这个方向成立；单独的 pre-translate 不启用 fast-ret。
 
 ---
 
@@ -31,7 +36,7 @@
 
 ```c
 // target/i386/cpu.h:1417-1420
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     target_ulong gpc;   // 预期的 guest PC（即 CALL 指令的 next_eip）
     uintptr_t hpc;      // 预期 TB 的 host code 指针
 #endif
@@ -43,10 +48,10 @@
 
 ```c
 // include/exec/exec-all.h:495-502
-#if defined(CONFIG_PRETR_OPT) && defined(__sw_64__)
+#if defined(CONFIG_PRE_TRANSLATE) && defined(__sw_64__)
     target_ulong next_pc;           // 预翻译链：guest target PC（供 pre_translate 遍历）
 #endif
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     uintptr_t jmp_to_next_offset;  // PBRP patch slot 的偏移（从 tb->tc.ptr 起）
 #endif
 ```
@@ -54,13 +59,13 @@
 `next_pc` 在翻译 CALL 指令时写入，在 `pre_translate()` 中用于查找/生成后续 TB。`jmp_to_next_offset` 在代码生成时记录（NOP 槽位的位置），后续由 `patch_pbrp()` 用真实的地址加载指令覆盖。
 
 > [!NOTE]
-> `next_pc` 受 `CONFIG_PRETR_OPT`（而非 `CONFIG_RET_OPT`）保护，因为它同时服务于 `pre_translate` 预翻译链和 RET_OPT 的 patch 路径。
+> `next_pc` 受 `CONFIG_PRE_TRANSLATE`（而非 `CONFIG_FAST_RET`）保护，因为它同时服务于 `pre_translate` 预翻译链和 FAST_RET 的 patch 路径。
 
 ### 2.3 TCGContext 新增字段
 
 ```c
 // include/tcg/tcg.h:625-630
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     uintptr_t *pbrp_patch_offset;  // 指向 tb->jmp_to_next_offset 的指针
     target_ulong tb_next_pc;       // 当前 TB 的 next_pc
 #endif
@@ -74,7 +79,7 @@
 
 ```c
 // include/tcg/tcg-opc.h:206-208
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
 DEF(ret, 0, 1, 0, TCG_OPF_BB_EXIT | TCG_OPF_BB_END | IMPL(TCG_TARGET_HAS_ret))
 #endif
 ```
@@ -126,7 +131,7 @@ case INDEX_op_ret:
 ```c
 // target/i386/tcg/translate.c:7770-7772
 next_eip = s->pc - s->cs_base;
-#if (defined(CONFIG_RET_OPT) || defined(CONFIG_PRETR_OPT)) && defined(__sw_64__)
+#if (defined(CONFIG_FAST_RET) || defined(CONFIG_PRE_TRANSLATE)) && defined(__sw_64__)
     s->base.tb->next_pc = next_eip;
 #endif
 ```
@@ -135,13 +140,13 @@ next_eip = s->pc - s->cs_base;
 ```c
 // target/i386/tcg/translate.c:6213-6215
 next_eip = s->pc - s->cs_base;
-#if (defined(CONFIG_RET_OPT) || defined(CONFIG_PRETR_OPT)) && defined(__sw_64__)
+#if (defined(CONFIG_FAST_RET) || defined(CONFIG_PRE_TRANSLATE)) && defined(__sw_64__)
     s->base.tb->next_pc = next_eip;
 #endif
 ```
 
 > [!NOTE]
-> 防护条件为 `CONFIG_RET_OPT || CONFIG_PRETR_OPT`，因为 `next_pc` 同时服务于预翻译链遍历和返回地址预测。
+> 防护条件为 `CONFIG_FAST_RET || CONFIG_PRE_TRANSLATE`，因为 `next_pc` 同时服务于预翻译链遍历和返回地址预测。
 
 ### 4.2 x86 RET 指令 — 生成 op_ret
 
@@ -154,7 +159,7 @@ case 0xc3: /* ret */
     ot = gen_pop_T0(s);
     gen_pop_update(s, ot);
 #endif
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     gen_op_jmp_v(s->T0);
     gen_bnd_jmp(s);
     gen_ret(s, s->T0);         // 发射 op_ret + lookup_and_goto_ptr fallback
@@ -179,7 +184,7 @@ static inline void gen_ret(DisasContext *s, TCGv dest) {
 ```
 
 > [!NOTE]
-> `CONFIG_LDLA_OPT` 提供了一种优化的 pop 路径；RET_OPT 的快速/fallback 结构与该优化无关，二者正交。
+> `CONFIG_LDLA_OPT` 提供了一种优化的 pop 路径；FAST_RET 的快速/fallback 结构与该优化无关，二者正交。
 
 ---
 
@@ -192,7 +197,7 @@ static inline void gen_ret(DisasContext *s, TCGv dest) {
 **`INDEX_op_goto_tb`** (仅当 `TCG_TARGET_HAS_direct_jump`):
 ```c
 // tcg/sw_64_6432/tcg-target.c.inc:2936-2940
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     if (s->tb_next_pc) {
         *(s->pbrp_patch_offset) = tcg_current_code_size(s);
         emit_pbrp_nop_slot(s); // 发射 12 条 NOP
@@ -207,7 +212,7 @@ static inline void gen_ret(DisasContext *s, TCGv dest) {
 **`INDEX_op_goto_ptr`**:
 ```c
 // tcg/sw_64_6432/tcg-target.c.inc:2963-2968
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     if (s->tb_next_pc) {
         *(s->pbrp_patch_offset) = (uintptr_t)tcg_current_code_size(s);
         emit_pbrp_nop_slot(s); // 发射 12 条 NOP
@@ -259,7 +264,7 @@ fallback:
 
 ```c
 // accel/tcg/cpu-exec.c:504-508
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     if (!qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {
         patch_pbrp(curr, next);
     }
@@ -296,10 +301,10 @@ fallback:
 TB 生成前（零初始化）：
 ```c
 // accel/tcg/translate-all.c:1906-1912
-#if (defined(CONFIG_RET_OPT) || defined(CONFIG_PRETR_OPT)) && defined(__sw_64__)
+#if (defined(CONFIG_FAST_RET) || defined(CONFIG_PRE_TRANSLATE)) && defined(__sw_64__)
     tb->next_pc = 0;
 #endif
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     tcg_ctx->tb_next_pc = 0;
     tb->jmp_to_next_offset = 0;
 #endif
@@ -308,14 +313,14 @@ TB 生成前（零初始化）：
 TB 生成前（从 TB 同步到 TCGContext）：
 ```c
 // accel/tcg/translate-all.c:1947-1950
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     tcg_ctx->pbrp_patch_offset = &tb->jmp_to_next_offset;
     tcg_ctx->tb_next_pc = tb->next_pc;
 #endif
 ```
 
 > [!NOTE]
-> `tb->next_pc` 的零初始化受 `(CONFIG_RET_OPT || CONFIG_PRETR_OPT)` 保护，因为该字段被两个配置共享。`jmp_to_next_offset` 和 `tcg_ctx` 字段仅受 `CONFIG_RET_OPT` 保护。
+> `tb->next_pc` 的零初始化受 `(CONFIG_FAST_RET || CONFIG_PRE_TRANSLATE)` 保护，因为该字段被两个配置共享。`jmp_to_next_offset` 和 `tcg_ctx` 字段仅受 `CONFIG_FAST_RET` 保护。
 
 ---
 
@@ -358,9 +363,9 @@ sequenceDiagram
 
 | 层次       | 文件                                                                                                | 作用                                                  |
 | ---------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| 构建       | [configure](file:///d:/Qemu6/Qemu6_opt/configure#L365)                                              | `--enable-ret-opt` 开关                               |
+| 构建       | [configure](file:///d:/Qemu6/Qemu6_opt/configure#L365)                                              | `--enable-pbrp` 开关                               |
 | CPU状态    | [target/i386/cpu.h](file:///d:/Qemu6/Qemu6_opt/target/i386/cpu.h#L1417)                             | `gpc`, `hpc` 字段                                     |
-| TB结构     | [include/exec/exec-all.h](file:///d:/Qemu6/Qemu6_opt/include/exec/exec-all.h#L495)                  | `next_pc` (PRETR_OPT), `jmp_to_next_offset` (RET_OPT) |
+| TB结构     | [include/exec/exec-all.h](file:///d:/Qemu6/Qemu6_opt/include/exec/exec-all.h#L495)                  | `next_pc` (PRE_TRANSLATE), `jmp_to_next_offset` (FAST_RET) |
 | TCG上下文  | [include/tcg/tcg.h](file:///d:/Qemu6/Qemu6_opt/include/tcg/tcg.h#L625)                              | `pbrp_patch_offset`, `tb_next_pc`                     |
 | 操作码定义 | [include/tcg/tcg-opc.h](file:///d:/Qemu6/Qemu6_opt/include/tcg/tcg-opc.h#L206)                      | `DEF(ret, ...)`                                       |
 | 操作码API  | [include/tcg/tcg-op.h](file:///d:/Qemu6/Qemu6_opt/include/tcg/tcg-op.h#L986)                        | `tcg_gen_ret()` 声明                                  |
@@ -382,7 +387,7 @@ sequenceDiagram
 
 3. **patch 幂等化**：`patch_pbrp()` 会检查指令槽的第二条指令是否为 NOP，以此判断是否已经 patch 过，避免重复的指令写入和代价高昂的 icache flush。
 
-4. **隐式依赖 PRETR_OPT**：启用 `ret_opt` 自动启用 `pretr_opt`，因为 `patch_pbrp()` 在 `pre_translate()` 链中被调用。没有 `pre_translate()` 的驱动，NOP 槽永远不会被填充，优化不会生效。
+4. **显式依赖 PRE_TRANSLATE**：`--enable-fast-ret` 缺少 `--enable-pre-translate` 时 configure 会报错；`--enable-pbrp` 同时启用二者。`patch_pbrp()` 在 `pre_translate()` 链中被调用，没有预翻译驱动时 NOP 槽不会被填充。
 
 5. **Fallback 安全**：`op_ret` 之后总是跟着 `lookup_and_goto_ptr()`，如果预测失败（`gpc != eip`），执行正常 fallback 路径，保证正确性。
 

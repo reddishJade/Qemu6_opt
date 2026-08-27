@@ -360,9 +360,9 @@ debug="no"
 func_opt="no"
 inst_opt="no"
 reg_opt="no"
-pretr_opt="no"
-pretr_log="no"
-ret_opt="no"
+pre_translate="no"
+pre_translate_log="no"
+fast_ret="no"
 tcg_stats="no"
 indirect_profile="no"
 indirect_hyperchain="no"
@@ -1066,17 +1066,21 @@ for opt do
   ;;
   --disable-reg-opt) reg_opt="no"
   ;;
-  --enable-pretr-opt) pretr_opt="yes"
+  --enable-pre-translate) pre_translate="yes"
   ;;
-  --disable-pretr-opt) pretr_opt="no"
+  --disable-pre-translate) pre_translate="no"
   ;;
-  --enable-pretr-log) pretr_log="yes"
+  --enable-pre-translate-log) pre_translate_log="yes"
   ;;
-  --disable-pretr-log) pretr_log="no"
+  --disable-pre-translate-log) pre_translate_log="no"
   ;;
-  --enable-ret-opt) ret_opt="yes"
+  --enable-fast-ret) fast_ret="yes"
   ;;
-  --disable-ret-opt) ret_opt="no"
+  --disable-fast-ret) fast_ret="no"
+  ;;
+  --enable-pbrp) pre_translate="yes"; fast_ret="yes"
+  ;;
+  --disable-pbrp) pre_translate="no"; fast_ret="no"
   ;;
   --enable-tcg-stats) tcg_stats="yes"
   ;;
@@ -5598,16 +5602,19 @@ fi
 if test "$reg_opt" = "yes" ; then
   echo "CONFIG_REG_OPT=y" >> $config_host_mak
 fi
-if test "$pretr_log" = "yes" ; then
-    pretr_opt="yes"
-    echo "CONFIG_PRETR_LOG=y" >> $config_host_mak
+if test "$pre_translate_log" = "yes" ; then
+    pre_translate="yes"
+    echo "CONFIG_PRE_TRANSLATE_LOG=y" >> $config_host_mak
 fi
-if test "$ret_opt" = "yes" ; then
-    pretr_opt="yes"
-    echo "CONFIG_RET_OPT=y" >> $config_host_mak
+if test "$fast_ret" = "yes" && test "$pre_translate" != "yes" ; then
+  error_exit "fast-ret requires pre-translate; use --enable-pbrp to enable both"
 fi
-if test "$pretr_opt" = "yes" ; then
-  echo "CONFIG_PRETR_OPT=y" >> $config_host_mak
+if test "$pre_translate" = "yes" ; then
+  echo "CONFIG_PRE_TRANSLATE=y" >> $config_host_mak
+fi
+if test "$fast_ret" = "yes" ; then
+  echo "CONFIG_FAST_RET=y" >> $config_host_mak
+  echo "CONFIG_PBRP=y" >> $config_host_mak
 fi
 if test "$tcg_stats" = "yes" ; then
   echo "CONFIG_TCG_STATS=y" >> $config_host_mak

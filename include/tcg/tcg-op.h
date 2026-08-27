@@ -996,12 +996,12 @@ void tcg_gen_hyperchain(TCGv dest, unsigned count,
                         target_ulong target3, target_ulong target4);
 #endif
 
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
 /**
  * tcg_gen_ret() - output ret TCG operation
  * @dest: Return address / destination value
  *
- * When CONFIG_RET_OPT is enabled and the backend supports `op_ret`,
+ * When CONFIG_FAST_RET is enabled and the backend supports `op_ret`,
  * this operation emits `INDEX_op_ret` which enables return chaining
  * as part of the return-optimization path.
  */

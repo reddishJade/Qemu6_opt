@@ -424,7 +424,7 @@ static inline void tb_add_jump(TranslationBlock *tb, int n,
     return;
 }
 
-#if defined(CONFIG_PRETR_OPT) && defined(__sw_64__)
+#if defined(CONFIG_PRE_TRANSLATE) && defined(__sw_64__)
 #if defined(CONFIG_INDIRECT_HYPERCHAIN)
 static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
                                target_ulong cs_base, uint32_t flags,
@@ -444,7 +444,7 @@ static TranslationBlock *get_next_tb(TranslationBlock *tb, CPUState *cpu,
         n = tb_gen_code(cpu, tb->next_pc, cs_base, flags, cflags);
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
         TCG_STAT_GEN_INC(tb_gen_count);
-#if defined(CONFIG_PRETR_LOG)
+#if defined(CONFIG_PRE_TRANSLATE_LOG)
         TCG_STAT_GEN_INC(tb_pre_translate_count);
 #endif
 #endif
@@ -485,12 +485,12 @@ static void pre_translate(TranslationBlock *tb, CPUState *cpu,
     TranslationBlock *next = NULL;
     TranslationBlock *curr = tb;
     uint64_t depth = 0;
-#if defined(CONFIG_TCG_STATS) && defined(CONFIG_PRETR_LOG) && defined(__sw_64__)
+#if defined(CONFIG_TCG_STATS) && defined(CONFIG_PRE_TRANSLATE_LOG) && defined(__sw_64__)
     uint64_t hits = 0;
 #endif
 
     while (curr && curr->next_pc && depth < PRE_TRANSLATE_MAX_DEPTH) {
-#if defined(CONFIG_TCG_STATS) && defined(CONFIG_PRETR_LOG) && defined(__sw_64__)
+#if defined(CONFIG_TCG_STATS) && defined(CONFIG_PRE_TRANSLATE_LOG) && defined(__sw_64__)
         bool was_hit = false;
         next = get_next_tb(curr, cpu, cs_base, flags, cflags, &was_hit);
 #else
@@ -501,7 +501,7 @@ static void pre_translate(TranslationBlock *tb, CPUState *cpu,
         }
 
         depth++;
-#if defined(CONFIG_TCG_STATS) && defined(CONFIG_PRETR_LOG) && defined(__sw_64__)
+#if defined(CONFIG_TCG_STATS) && defined(CONFIG_PRE_TRANSLATE_LOG) && defined(__sw_64__)
         if (was_hit) {
             hits++;
         }
@@ -510,7 +510,7 @@ static void pre_translate(TranslationBlock *tb, CPUState *cpu,
         qatomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(curr->next_pc)],
                     next);
 
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
         if (!qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {
             patch_pbrp(curr, next);
         }
@@ -666,7 +666,7 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
         TCG_STAT_GEN_INC(tb_gen_count);
 #endif
 
-#if defined(CONFIG_PRETR_OPT) && defined(__sw_64__)
+#if defined(CONFIG_PRE_TRANSLATE) && defined(__sw_64__)
         if (tb->next_pc) {
             pre_translate(tb, cpu, cs_base, flags, cflags);
         }

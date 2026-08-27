@@ -19,7 +19,7 @@ is independent of ``--disable-tcg-stats``::
       --interp-prefix=/home/dongwei/lib/qemu-binfmt/%M \
       --disable-docs --disable-werror --disable-blobs \
       --disable-reg-opt --disable-inst-opt --disable-func-opt \
-      --disable-ret-opt --disable-tcg-stats \
+      --disable-pbrp --disable-tcg-stats \
       --enable-indirect-profile
   make -j$(nproc)
 

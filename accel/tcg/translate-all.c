@@ -1608,7 +1608,7 @@ static inline void tb_jmp_unlink(TranslationBlock *dest)
     }
     dest->jmp_list_head = (uintptr_t)NULL;
 
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     {
         uintptr_t ptr = dest->pbrp_jmp_list_head;
 
@@ -1943,10 +1943,10 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tb->cflags = cflags;
     tb->trace_vcpu_dstate = *cpu->trace_dstate;
     tcg_ctx->tb_cflags = cflags;
-#if (defined(CONFIG_RET_OPT) || defined(CONFIG_PRETR_OPT)) && defined(__sw_64__)
+#if (defined(CONFIG_FAST_RET) || defined(CONFIG_PRE_TRANSLATE)) && defined(__sw_64__)
     tb->next_pc = 0;
 #endif
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     tcg_ctx->tb_next_pc = 0;
     tb->jmp_to_next_offset = 0;
     tb->pbrp_jmp_dest = 0;
@@ -2016,7 +2016,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         tcg_ctx->tb_jmp_insn_offset = NULL;
         tcg_ctx->tb_jmp_target_addr = tb->jmp_target_arg;
     }
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     tcg_ctx->pbrp_patch_offset = &tb->jmp_to_next_offset;
     tcg_ctx->tb_next_pc = tb->next_pc;
 #endif

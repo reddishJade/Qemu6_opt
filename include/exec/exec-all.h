@@ -27,6 +27,10 @@
 #endif
 #include "sysemu/cpu-timers.h"
 
+#if defined(CONFIG_FAST_RET) && !defined(CONFIG_PRE_TRANSLATE)
+#error CONFIG_FAST_RET requires CONFIG_PRE_TRANSLATE
+#endif
+
 /* allow to see translation results - the slowdown should be negligible, so we leave it */
 #define DEBUG_DISAS
 
@@ -492,11 +496,11 @@ struct TranslationBlock {
 #define TB_JMP_RESET_OFFSET_INVALID 0xffff /* indicates no jump generated */
     uintptr_t jmp_target_arg[2];  /* target address or offset */
 
-#if defined(CONFIG_PRETR_OPT) && defined(__sw_64__)
+#if defined(CONFIG_PRE_TRANSLATE) && defined(__sw_64__)
     /* Pre-Translate optimization chain: guest target PC.  */
     target_ulong next_pc;
 #endif
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     /* Host patch offset (from tb->tc.ptr) for pbrp chaining.  */
     uintptr_t jmp_to_next_offset;
     /* One outgoing PBRP edge per source TB and an incoming edge list on the

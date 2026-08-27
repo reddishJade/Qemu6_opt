@@ -1966,7 +1966,7 @@ void tb_target_set_jmp_target(uintptr_t tc_ptr, uintptr_t jmp_rx, uintptr_t jmp_
     }
 }
 
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
 /*
  * Number of NOP instructions reserved for a PBRP patch slot.
  * Must match: 2 groups (gpc + hpc) x 6 insns each = 12.
@@ -1997,7 +1997,7 @@ static inline void emit_pbrp_slot(TCGContext *s)
     }
 }
 #endif
-#endif /* CONFIG_RET_OPT && __sw_64__ */
+#endif /* CONFIG_FAST_RET && __sw_64__ */
 
 #if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
 #define HYPERCHAIN_SLOT_SIZE 6
@@ -2092,7 +2092,7 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
 }
 #endif
 
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
 /* Address-calculation helpers */
 typedef struct {
     uintptr_t jmp_rx;  /* RX address to execute from */
@@ -3289,7 +3289,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
             if ((uintptr_t)s->code_ptr & 7) {
                 tcg_out32(s, OPC_NOP);
             }
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
             if (s->tb_next_pc) {
                 *(s->pbrp_patch_offset) = tcg_current_code_size(s);
                 emit_pbrp_nop_slot(s);
@@ -3316,7 +3316,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
         break;
 
     case INDEX_op_goto_ptr:
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
         if (s->tb_next_pc) {
             *(s->pbrp_patch_offset) = (uintptr_t)tcg_current_code_size(s);
             emit_pbrp_nop_slot(s);
@@ -3327,7 +3327,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
 
 #if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
     case INDEX_op_oracle_top1:
-#if defined(CONFIG_RET_OPT)
+#if defined(CONFIG_FAST_RET)
         emit_pbrp_slot(s);
 #endif
         tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_TMP2, a1);
@@ -3340,7 +3340,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
 #endif
 #if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
     case INDEX_op_oracle_top2:
-#if defined(CONFIG_RET_OPT)
+#if defined(CONFIG_FAST_RET)
         emit_pbrp_slot(s);
 #endif
         tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_TMP2, a1);
@@ -3384,7 +3384,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
         break;
 #endif
 
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     case INDEX_op_ret:
         tcg_out_insn_ldst(s, OPC_LDL, TCG_REG_TMP,  TCG_AREG0, offsetof(CPUX86State, gpc));
         tcg_out_insn_ldst(s, OPC_LDL, TCG_REG_TMP2,  TCG_AREG0, offsetof(CPUX86State, eip));
@@ -4011,7 +4011,7 @@ static TCGConstraintSetIndex tcg_target_op_def(TCGOpcode op)
     case INDEX_op_ldih:
         return C_O1_I2(r, r, rT);
     case INDEX_op_goto_ptr:
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     case INDEX_op_ret:
 #endif
         return C_O0_I1(r);

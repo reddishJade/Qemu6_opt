@@ -1414,7 +1414,7 @@ typedef struct CPUX86State {
                         are known at translation time. */
     uint32_t hflags2; /* various other flags, see HF2_xxx constants. */
 
-#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
+#if defined(CONFIG_FAST_RET) && defined(__sw_64__)
     target_ulong gpc;
     uintptr_t hpc;
 #endif

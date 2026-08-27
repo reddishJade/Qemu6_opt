@@ -73,8 +73,8 @@ configure_qemu() {
             --disable-reg-opt \
             --disable-inst-opt \
             --disable-func-opt \
-            --enable-ret-opt \
-            --enable-ret-opt-log \
+            --enable-pbrp \
+            --enable-pre-translate-log \
             "$@"
         make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" qemu-x86_64
     )

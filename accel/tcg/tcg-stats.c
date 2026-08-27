@@ -2,7 +2,7 @@
  * Translation Block Statistics Implementation
  *
  * Consolidated TCG statistics, including optional PRETR_OPT pre-translation
- * metrics when CONFIG_PRETR_LOG is enabled.
+ * metrics when CONFIG_PRE_TRANSLATE_LOG is enabled.
  */
 #include "qemu/osdep.h"
 #include "exec/tcg-stats.h"
@@ -13,7 +13,7 @@ TCGStats g_tcg_stats = {0};
 
 #if TCG_STATS_ENABLED
 
-#if defined(CONFIG_PRETR_LOG)
+#if defined(CONFIG_PRE_TRANSLATE_LOG)
 static const char * const bucket_labels[TCG_PRETRANS_DEPTH_BUCKETS] = {
     "depth = 0      (noop)",
     "depth = 1      ",
@@ -63,7 +63,7 @@ TCGStats tcg_stats_get(void)
     stats.tb_gen_count = qatomic_read(&g_tcg_stats.tb_gen_count);
     stats.tb_exec_count = qatomic_read(&g_tcg_stats.tb_exec_count);
 
-#if defined(CONFIG_PRETR_LOG)
+#if defined(CONFIG_PRE_TRANSLATE_LOG)
     int i;
 
     stats.tb_pre_translate_count = qatomic_read(&g_tcg_stats.tb_pre_translate_count);
@@ -101,7 +101,7 @@ double tcg_cache_hit_rate(void)
     return total > 0 ? (double)hits / total : 0.0;
 }
 
-#if defined(CONFIG_PRETR_LOG)
+#if defined(CONFIG_PRE_TRANSLATE_LOG)
 double tcg_pre_translate_avg_depth(void)
 {
     uint64_t calls = qatomic_read(&g_tcg_stats.pre_translate_calls);
@@ -126,7 +126,7 @@ void tcg_stats_dump(void)
     uint64_t cache_total = stats.hit_count_tb_jmp_cache +
                            stats.hit_count_qht +
                            stats.fallback_to_dispatcher;
-#if defined(CONFIG_PRETR_LOG)
+#if defined(CONFIG_PRE_TRANSLATE_LOG)
     uint64_t pt_steps = stats.pre_translate_lookup_hit +
                         stats.pre_translate_lookup_miss;
 #endif
