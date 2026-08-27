@@ -361,7 +361,6 @@ func_opt="no"
 inst_opt="no"
 reg_opt="no"
 pre_translate="no"
-pre_translate_log="no"
 fast_ret="no"
 tcg_stats="no"
 indirect_profile="no"
@@ -1066,10 +1065,6 @@ for opt do
   --enable-pre-translate) pre_translate="yes"
   ;;
   --disable-pre-translate) pre_translate="no"
-  ;;
-  --enable-pre-translate-log) pre_translate_log="yes"
-  ;;
-  --disable-pre-translate-log) pre_translate_log="no"
   ;;
   --enable-fast-ret) fast_ret="yes"
   ;;
@@ -5587,10 +5582,6 @@ fi
 if test "$reg_opt" = "yes" ; then
   echo "CONFIG_REG_OPT=y" >> $config_host_mak
 fi
-if test "$pre_translate_log" = "yes" ; then
-    pre_translate="yes"
-    echo "CONFIG_PRE_TRANSLATE_LOG=y" >> $config_host_mak
-fi
 if test "$fast_ret" = "yes" && test "$pre_translate" != "yes" ; then
   error_exit "fast-ret requires pre-translate; use --enable-pbrp to enable both"
 fi
@@ -5600,6 +5591,10 @@ fi
 if test "$fast_ret" = "yes" ; then
   echo "CONFIG_FAST_RET=y" >> $config_host_mak
   echo "CONFIG_PBRP=y" >> $config_host_mak
+fi
+if test "$indirect_profile" = "yes" && \
+   { test "$pre_translate" = "yes" || test "$rfich" = "yes"; } ; then
+  error_exit "indirect profiling must run before PBRP and RFICH"
 fi
 if test "$tcg_stats" = "yes" ; then
   echo "CONFIG_TCG_STATS=y" >> $config_host_mak

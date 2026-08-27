@@ -8,8 +8,10 @@ Indirect branch profiling
 instrumented build is intended for target-distribution profiling only; its
 execution time is not a performance result.
 
-For the unbiased baseline profile, enable the profiler with PbRP disabled.  It
-is independent of ``--disable-tcg-stats``::
+The profiler is the analysis phase that precedes PBRP and RFICH.  Configure
+rejects combinations with either optimization so that the measured target
+distribution remains unbiased.  It is independent of
+``--disable-tcg-stats``::
 
   ../configure --extra-cflags="-O2" \
       --enable-linux-user --target-list=x86_64-linux-user \
@@ -19,39 +21,28 @@ is independent of ``--disable-tcg-stats``::
       --interp-prefix=/home/dongwei/lib/qemu-binfmt/%M \
       --disable-docs --disable-werror --disable-blobs \
       --disable-reg-opt --disable-inst-opt --disable-func-opt \
-      --disable-pbrp --disable-tcg-stats \
+      --disable-pbrp --disable-rfich --disable-tcg-stats \
       --enable-indirect-profile
   make -j$(nproc)
 
 First verify that the translator starts and exits normally with an x86-64
 guest executable::
 
-  QEMU_INDIRECT_PROFILE_OUT=/tmp/hello.csv \
-      ./qemu-x86_64 /path/to/x86_64/hello
-  test -s /tmp/hello.csv
-  head /tmp/hello.csv
+  ./qemu-x86_64 /path/to/x86_64/hello
+  profile=$(ls -t indirect-profile-*.csv | head -n 1)
+  test -s "$profile"
+  head "$profile"
 
 The CSV always contains a header.  A minimal or statically linked hello-world
 may have no profiled branches, so a header-only file is valid.  To verify that
 the branch records themselves work, run a dynamically linked program or a
 small x86-64 test that calls functions through function pointers.
 
-Set ``QEMU_INDIRECT_PROFILE_OUT`` to select the CSV output file::
-
-  QEMU_INDIRECT_PROFILE_OUT=/tmp/perlbench.csv \
-      ./qemu-x86_64 /path/to/perlbench [arguments]
-
-Use ``%p`` in the path for workloads that fork.  It expands to the host QEMU
-process ID and prevents parent and child processes from overwriting each
-other::
-
-  QEMU_INDIRECT_PROFILE_OUT=/tmp/perlbench-%p.csv ./qemu-x86_64 ...
-
-After a guest fork, the child starts with an empty profile rather than the
-parent's inherited observations.
-
-Without the variable, QEMU writes ``indirect-profile-<pid>.csv`` in its
-current directory.  Each row represents one static guest branch site.  The
+QEMU writes ``indirect-profile-<pid>.csv`` in its current directory without
+requiring a runtime environment variable.  The PID suffix prevents forked
+processes from overwriting each other; each child starts with an empty profile
+rather than inherited observations.  Each row represents one static guest
+branch site.  The
 four target entries use the Space-Saving algorithm: ``count`` is an estimated
 frequency and ``error`` is its maximum overestimate.  A zero error means the
 count is exact.  ``replacements`` indicates that the site observed more target

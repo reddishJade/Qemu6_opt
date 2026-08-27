@@ -433,27 +433,18 @@ static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
 
 static TranslationBlock *get_next_tb(TranslationBlock *tb, CPUState *cpu,
                                      target_ulong cs_base, uint32_t flags,
-                                     uint32_t cflags, bool *was_hit)
+                                     uint32_t cflags)
 {
-    TranslationBlock *n;
-    n = tb_lookup(cpu, tb->next_pc, cs_base, flags, cflags);
-    if (!n) {
-        if (was_hit) {
-            *was_hit = false;
-        }
-        n = tb_gen_code(cpu, tb->next_pc, cs_base, flags, cflags);
+    TranslationBlock *next;
+
+    next = tb_lookup(cpu, tb->next_pc, cs_base, flags, cflags);
+    if (!next) {
+        next = tb_gen_code(cpu, tb->next_pc, cs_base, flags, cflags);
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
         TCG_STAT_GEN_INC(tb_gen_count);
-#if defined(CONFIG_PRE_TRANSLATE_LOG)
-        TCG_STAT_GEN_INC(tb_pre_translate_count);
 #endif
-#endif
-    } else {
-        if (was_hit) {
-            *was_hit = true;
-        }
     }
-    return n;
+    return next;
 }
 
 /*
@@ -470,42 +461,21 @@ static TranslationBlock *get_next_tb(TranslationBlock *tb, CPUState *cpu,
 #define PRE_TRANSLATE_MAX_DEPTH 16
 #endif
 
-/*
- * pre_translate - eagerly translate the TB chain reachable via next_pc links.
- *
- * Statistics (when TCG_STAT_DEPTH_* is enabled):
- *   pre_translate_calls     += 1
- *   pre_translate_depth_sum += <steps taken (capped at
- * PRE_TRANSLATE_MAX_DEPTH)> pre_translate_depth_max  = max(current max, depth
- * this call)
- */
+/* Eagerly translate the TB chain reachable via next_pc links. */
 static void pre_translate(TranslationBlock *tb, CPUState *cpu,
                           target_ulong cs_base, uint32_t flags, uint32_t cflags)
 {
     TranslationBlock *next = NULL;
     TranslationBlock *curr = tb;
     uint64_t depth = 0;
-#if defined(CONFIG_TCG_STATS) && defined(CONFIG_PRE_TRANSLATE_LOG) && defined(__sw_64__)
-    uint64_t hits = 0;
-#endif
 
     while (curr && curr->next_pc && depth < PRE_TRANSLATE_MAX_DEPTH) {
-#if defined(CONFIG_TCG_STATS) && defined(CONFIG_PRE_TRANSLATE_LOG) && defined(__sw_64__)
-        bool was_hit = false;
-        next = get_next_tb(curr, cpu, cs_base, flags, cflags, &was_hit);
-#else
-        next = get_next_tb(curr, cpu, cs_base, flags, cflags, NULL);
-#endif
+        next = get_next_tb(curr, cpu, cs_base, flags, cflags);
         if (!next) {
             break;
         }
 
         depth++;
-#if defined(CONFIG_TCG_STATS) && defined(CONFIG_PRE_TRANSLATE_LOG) && defined(__sw_64__)
-        if (was_hit) {
-            hits++;
-        }
-#endif
 
         qatomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(curr->next_pc)],
                     next);
@@ -524,15 +494,6 @@ static void pre_translate(TranslationBlock *tb, CPUState *cpu,
 
         curr = next;
     }
-
-#if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
-    TCG_STAT_DEPTH_INC(pre_translate_calls);
-    TCG_STAT_DEPTH_ADD(pre_translate_depth_sum, depth);
-    TCG_STAT_DEPTH_MAX(pre_translate_depth_max, depth);
-    TCG_STAT_DEPTH_ADD(pre_translate_lookup_hit, hits);
-    TCG_STAT_DEPTH_ADD(pre_translate_lookup_miss, depth - hits);
-    TCG_STAT_DEPTH_BUCKET(depth);
-#endif
 }
 #endif
 

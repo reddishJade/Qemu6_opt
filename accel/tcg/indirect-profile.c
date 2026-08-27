@@ -143,32 +143,18 @@ static const char *indirect_profile_type_name(uint32_t type)
 
 void indirect_profile_dump(void)
 {
-    const char *configured_path = getenv("QEMU_INDIRECT_PROFILE_OUT");
-    g_autofree char *default_path = NULL;
-    g_autofree char *expanded_path = NULL;
+    g_autofree char *path =
+        g_strdup_printf("indirect-profile-%ld.csv", (long)getpid());
     FILE *out;
     unsigned bucket;
 
     indirect_profile_init();
     indirect_profile_check_fork();
-    if (!configured_path || !*configured_path) {
-        default_path = g_strdup_printf("indirect-profile-%ld.csv", (long)getpid());
-        configured_path = default_path;
-    } else {
-        const char *pid_marker = strstr(configured_path, "%p");
 
-        if (pid_marker) {
-            expanded_path = g_strdup_printf("%.*s%ld%s",
-                (int)(pid_marker - configured_path), configured_path,
-                (long)getpid(), pid_marker + 2);
-            configured_path = expanded_path;
-        }
-    }
-
-    out = fopen(configured_path, "w");
+    out = fopen(path, "w");
     if (!out) {
         fprintf(stderr, "indirect profile: cannot open %s: %s\n",
-                configured_path, strerror(errno));
+                path, strerror(errno));
         return;
     }
 
@@ -203,5 +189,5 @@ void indirect_profile_dump(void)
     }
     qemu_mutex_unlock(&profile_lock);
     fclose(out);
-    fprintf(stderr, "indirect profile: wrote %s\n", configured_path);
+    fprintf(stderr, "indirect profile: wrote %s\n", path);
 }
