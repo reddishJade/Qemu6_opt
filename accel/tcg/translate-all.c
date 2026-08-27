@@ -1627,7 +1627,7 @@ static inline void tb_jmp_unlink(TranslationBlock *dest)
     }
 #endif
 
-#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
     {
         uintptr_t ptr = dest->hyperchain_jmp_list_head;
 
@@ -1953,7 +1953,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tb->pbrp_jmp_list_next = 0;
     tb->pbrp_jmp_list_head = 0;
 #endif
-#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
     tb->hyperchain_site_pc = 0;
     tb->hyperchain_type = 0;
     tb->hyperchain_target_count = 0;
@@ -1981,7 +1981,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 
     tcg_func_start(tcg_ctx);
 
-#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
     tcg_ctx->hyperchain_target_count = 0;
 #endif
     tcg_ctx->cpu = env_cpu(env);
@@ -2007,7 +2007,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tcg_ctx->pbrp_patch_offset = &tb->jmp_to_next_offset;
     tcg_ctx->tb_next_pc = tb->next_pc;
 #endif
-#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
     tcg_ctx->hyperchain_patch_offset = tb->hyperchain_patch_offset;
 #endif
 

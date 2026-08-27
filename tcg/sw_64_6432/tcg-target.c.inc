@@ -1982,7 +1982,7 @@ static inline void emit_pbrp_nop_slot(TCGContext *s)
 
 #endif /* CONFIG_FAST_RET && __sw_64__ */
 
-#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
 #define HYPERCHAIN_SLOT_SIZE 6
 
 static inline void emit_hyperchain_nop_slot(TCGContext *s)
@@ -2932,7 +2932,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
     TCGArg a0 = args[0];
     TCGArg a1 = args[1];
     TCGArg a2 = args[2];
-#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
     TCGArg a3 = args[3];
     TCGArg a4 = args[4];
 #endif
@@ -3101,7 +3101,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
         tcg_out_insn_jump(s, OPC_JMP, TCG_REG_ZERO, a0, noPara);
         break;
 
-#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
     case INDEX_op_hyperchain:
         /*
          * a0 is the guest target; a1..a4 are learned target PCs.  The
@@ -3758,7 +3758,7 @@ static TCGConstraintSetIndex tcg_target_op_def(TCGOpcode op)
     case INDEX_op_ret:
 #endif
         return C_O0_I1(r);
-#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
     case INDEX_op_hyperchain:
         return C_O0_I1(r);
 #endif

@@ -2740,7 +2740,7 @@ void tcg_gen_lookup_and_goto_ptr(void)
     }
 }
 
-#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
 void tcg_gen_hyperchain(TCGv dest, unsigned count,
                         target_ulong target1, target_ulong target2,
                         target_ulong target3, target_ulong target4)

@@ -47,7 +47,7 @@ void preexit_cleanup(CPUArchState *env, int code)
 #if defined(CONFIG_INDIRECT_PROFILE)
         indirect_profile_dump();
 #endif
-#if defined(CONFIG_ONLINE_HYPERCHAIN)
+#if defined(CONFIG_RFICH)
         indirect_hyperchain_dump();
 #endif
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)

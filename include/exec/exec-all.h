@@ -509,7 +509,7 @@ struct TranslationBlock {
     uintptr_t pbrp_jmp_list_next;
     uintptr_t pbrp_jmp_list_head;
 #endif
-#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
 #ifndef INDIRECT_HYPER_MAX_TARGETS
 #define INDIRECT_HYPER_MAX_TARGETS 4
 #endif

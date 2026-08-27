@@ -127,7 +127,7 @@ typedef enum {
 #define TCG_TARGET_HAS_muluh_i64	1
 #define TCG_TARGET_HAS_mulsh_i64	1
 #define TCG_TARGET_DEFAULT_MO (0)
-#if defined(CONFIG_ONLINE_HYPERCHAIN)
+#if defined(CONFIG_RFICH)
 #define TCG_TARGET_HAS_hyperchain      1
 #endif
 #define TCG_TARGET_HAS_MEMORY_BSWAP     0
@@ -137,7 +137,7 @@ void tb_target_set_jmp_target(uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb);
 void patch_pbrp_reset(TranslationBlock *tb);
 #endif
-#if defined(CONFIG_ONLINE_HYPERCHAIN)
+#if defined(CONFIG_RFICH)
 void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
                       int index);
 void patch_hyperchain_reset(TranslationBlock *tb, int index);

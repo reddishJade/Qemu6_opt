@@ -30,7 +30,7 @@ DEF_HELPER_FLAGS_1(lookup_tb_ptr, TCG_CALL_NO_WG_SE, cptr, env)
 DEF_HELPER_3(profile_indirect, void, tl, tl, i32)
 #endif
 
-#if defined(CONFIG_ONLINE_HYPERCHAIN)
+#if defined(CONFIG_RFICH)
 DEF_HELPER_4(hyperchain_observe, void, env, tl, tl, i32)
 #endif
 

@@ -366,7 +366,7 @@ fast_ret="no"
 tcg_stats="no"
 indirect_profile="no"
 indirect_jump_opt="no"
-online_hyperchain="no"
+rfich="no"
 native_libs="no"
 native_libs_load_debug="no"
 native_libs_call_debug="no"
@@ -1092,9 +1092,9 @@ for opt do
   ;;
   --disable-indirect-jump-opt) indirect_jump_opt="no"
   ;;
-  --enable-online-hyperchain) online_hyperchain="yes"
+  --enable-rfich) rfich="yes"
   ;;
-  --disable-online-hyperchain) online_hyperchain="no"
+  --disable-rfich) rfich="no"
   ;;
   --enable-native-libs) native_libs="yes"
   ;;
@@ -5595,7 +5595,7 @@ fi
 if test "$indirect_jump_opt" = "yes" ; then
   pre_translate="yes"
   fast_ret="yes"
-  online_hyperchain="yes"
+  rfich="yes"
   echo "CONFIG_INDIRECT_JUMP_OPT=y" >> $config_host_mak
 fi
 if test "$pre_translate_log" = "yes" ; then
@@ -5618,8 +5618,8 @@ fi
 if test "$indirect_profile" = "yes" ; then
   echo "CONFIG_INDIRECT_PROFILE=y" >> $config_host_mak
 fi
-if test "$online_hyperchain" = "yes" ; then
-  echo "CONFIG_ONLINE_HYPERCHAIN=y" >> $config_host_mak
+if test "$rfich" = "yes" ; then
+  echo "CONFIG_RFICH=y" >> $config_host_mak
 fi
 if [ "$native_libs" = "yes" ] && \
    [ "$native_libs_load_debug" = "no" ] && \

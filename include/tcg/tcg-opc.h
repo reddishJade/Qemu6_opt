@@ -206,7 +206,7 @@ DEF(goto_ptr, 0, 1, 0,
 #if defined(CONFIG_FAST_RET) && defined(__sw_64__)
 DEF(ret, 0, 1, 0, TCG_OPF_BB_EXIT | TCG_OPF_BB_END | IMPL(TCG_TARGET_HAS_ret))
 #endif
-#if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
 DEF(hyperchain, 0, 1, 4, TCG_OPF_SIDE_EFFECTS | IMPL(TCG_TARGET_HAS_hyperchain))
 #endif
 
