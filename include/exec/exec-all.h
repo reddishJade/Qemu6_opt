@@ -509,19 +509,6 @@ struct TranslationBlock {
     uintptr_t pbrp_jmp_list_next;
     uintptr_t pbrp_jmp_list_head;
 #endif
-#if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
-    /* Workload-specific oracle target and its host-code patch slot. */
-    target_ulong oracle_top1_pc;
-    uintptr_t oracle_top1_patch_offset;
-#endif
-#if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
-    target_ulong oracle_top2_pc[2];
-    uintptr_t oracle_top2_patch_offset[2];
-#endif
-#if defined(CONFIG_INDIRECT_ORACLE_DUMP) && defined(__sw_64__)
-    /* Guest indirect-branch site used to filter diagnostic host-code dumps. */
-    target_ulong oracle_dump_site;
-#endif
 #if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
 #ifndef INDIRECT_HYPER_MAX_TARGETS
 #define INDIRECT_HYPER_MAX_TARGETS 4

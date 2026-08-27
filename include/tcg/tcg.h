@@ -628,12 +628,6 @@ struct TCGContext {
     /* Target PC of the TB that follows after chaining.  */
     target_ulong tb_next_pc;
 #endif
-#if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
-    uintptr_t *oracle_top1_patch_offset;
-#endif
-#if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
-    uintptr_t *oracle_top2_patch_offset;
-#endif
 #if defined(CONFIG_ONLINE_HYPERCHAIN) && defined(__sw_64__)
     uintptr_t *hyperchain_patch_offset;
     uint32_t hyperchain_target_count;

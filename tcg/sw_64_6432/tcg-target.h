@@ -127,12 +127,6 @@ typedef enum {
 #define TCG_TARGET_HAS_muluh_i64	1
 #define TCG_TARGET_HAS_mulsh_i64	1
 #define TCG_TARGET_DEFAULT_MO (0)
-#if defined(CONFIG_INDIRECT_ORACLE_TOP1)
-#define TCG_TARGET_HAS_oracle_top1      1
-#endif
-#if defined(CONFIG_INDIRECT_ORACLE_TOP2)
-#define TCG_TARGET_HAS_oracle_top2      1
-#endif
 #if defined(CONFIG_ONLINE_HYPERCHAIN)
 #define TCG_TARGET_HAS_hyperchain      1
 #endif
@@ -142,13 +136,6 @@ void tb_target_set_jmp_target(uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 #if defined(CONFIG_FAST_RET) && defined(__sw_64__)
 void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb);
 void patch_pbrp_reset(TranslationBlock *tb);
-#endif
-#if defined(CONFIG_INDIRECT_ORACLE_TOP1)
-void patch_oracle_top1(TranslationBlock *tb, TranslationBlock *target_tb);
-#endif
-#if defined(CONFIG_INDIRECT_ORACLE_TOP2)
-void patch_oracle_top2(TranslationBlock *tb, TranslationBlock *target_tb,
-                       int index);
 #endif
 #if defined(CONFIG_ONLINE_HYPERCHAIN)
 void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
