@@ -591,6 +591,10 @@ static void prepare_oracle_top2(TranslationBlock *tb, CPUState *cpu,
 #endif
 
 #if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
+#ifndef HYPERCHAIN_PREPARE_MAX_DEPTH
+#define HYPERCHAIN_PREPARE_MAX_DEPTH 16
+#endif
+
 static void prepare_hyperchain_depth(TranslationBlock *tb, CPUState *cpu,
                                      target_ulong cs_base, uint32_t flags,
                                      uint32_t cflags, unsigned depth)
@@ -617,7 +621,7 @@ static void prepare_hyperchain_depth(TranslationBlock *tb, CPUState *cpu,
             if (!target) {
                 target = tb_gen_code(cpu, target_pc, cs_base, flags, cflags);
                 if (target && target != tb &&
-                    depth < PRE_TRANSLATE_MAX_DEPTH) {
+                    depth < HYPERCHAIN_PREPARE_MAX_DEPTH) {
                     /* A target generated here bypasses tb_find() just like a
                      * pretranslated TB.  Prepare its own learned slots before
                      * this source can jump to it directly. */

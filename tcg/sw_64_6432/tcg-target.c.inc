@@ -1980,17 +1980,15 @@ static inline void emit_pbrp_nop_slot(TCGContext *s)
     }
 }
 
-#if defined(CONFIG_RET_OPT) && \
-    (defined(CONFIG_INDIRECT_ORACLE_TOP1) || \
-     defined(CONFIG_INDIRECT_ORACLE_TOP2) || \
-     defined(CONFIG_INDIRECT_HYPERCHAIN))
+#if defined(CONFIG_INDIRECT_ORACLE_TOP1) || \
+    defined(CONFIG_INDIRECT_ORACLE_TOP2)
 /*
  * An oracle hit jumps out before goto_ptr.  Reserve the PBRP state-update
  * slot before the oracle comparison so every CALL path prepares its return
  * target.  Clear the context copy to suppress the old slot at goto_ptr;
  * tb->next_pc remains intact for patch_pbrp().
  */
-static inline void emit_oracle_pbrp_slot(TCGContext *s)
+static inline void emit_pbrp_slot(TCGContext *s)
 {
     if (s->tb_next_pc) {
         *(s->pbrp_patch_offset) = tcg_current_code_size(s);
@@ -1999,6 +1997,7 @@ static inline void emit_oracle_pbrp_slot(TCGContext *s)
     }
 }
 #endif
+#endif /* CONFIG_RET_OPT && __sw_64__ */
 
 #if defined(CONFIG_INDIRECT_HYPERCHAIN) && defined(__sw_64__)
 #define HYPERCHAIN_SLOT_SIZE 6
@@ -2093,6 +2092,7 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
 }
 #endif
 
+#if defined(CONFIG_RET_OPT) && defined(__sw_64__)
 /* Address-calculation helpers */
 typedef struct {
     uintptr_t jmp_rx;  /* RX address to execute from */
@@ -3328,7 +3328,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
 #if defined(CONFIG_INDIRECT_ORACLE_TOP1) && defined(__sw_64__)
     case INDEX_op_oracle_top1:
 #if defined(CONFIG_RET_OPT)
-        emit_oracle_pbrp_slot(s);
+        emit_pbrp_slot(s);
 #endif
         tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_TMP2, a1);
         tcg_out_insn_simpleReg(s, OPC_SUBL, TCG_REG_TMP2,
@@ -3341,7 +3341,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
 #if defined(CONFIG_INDIRECT_ORACLE_TOP2) && defined(__sw_64__)
     case INDEX_op_oracle_top2:
 #if defined(CONFIG_RET_OPT)
-        emit_oracle_pbrp_slot(s);
+        emit_pbrp_slot(s);
 #endif
         tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_TMP2, a1);
         tcg_out_insn_simpleReg(s, OPC_SUBL, TCG_REG_TMP2,
@@ -3366,9 +3366,6 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
          * through a patched host TB slot; fall-through is the ordinary
          * lookup path.
          */
-#if defined(CONFIG_RET_OPT)
-        emit_oracle_pbrp_slot(s);
-#endif
         {
             TCGArg targets[INDIRECT_HYPER_MAX_TARGETS] = { a1, a2, a3, a4 };
             unsigned count = MIN(s->hyperchain_target_count,
