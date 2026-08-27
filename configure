@@ -365,6 +365,7 @@ pre_translate_log="no"
 fast_ret="no"
 tcg_stats="no"
 indirect_profile="no"
+indirect_jump_opt="no"
 online_hyperchain="no"
 indirect_oracle_top1="no"
 indirect_oracle_top2="no"
@@ -1089,6 +1090,10 @@ for opt do
   --enable-indirect-profile) indirect_profile="yes"
   ;;
   --disable-indirect-profile) indirect_profile="no"
+  ;;
+  --enable-indirect-jump-opt) indirect_jump_opt="yes"
+  ;;
+  --disable-indirect-jump-opt) indirect_jump_opt="no"
   ;;
   --enable-online-hyperchain) online_hyperchain="yes"
   ;;
@@ -5601,6 +5606,12 @@ if test "x$target_sw64_cpu" != "x"; then
 fi
 if test "$reg_opt" = "yes" ; then
   echo "CONFIG_REG_OPT=y" >> $config_host_mak
+fi
+if test "$indirect_jump_opt" = "yes" ; then
+  pre_translate="yes"
+  fast_ret="yes"
+  online_hyperchain="yes"
+  echo "CONFIG_INDIRECT_JUMP_OPT=y" >> $config_host_mak
 fi
 if test "$pre_translate_log" = "yes" ; then
     pre_translate="yes"
