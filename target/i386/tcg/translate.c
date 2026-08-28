@@ -245,6 +245,17 @@ static bool gen_hyperchain(DisasContext *s, TCGv dest, uint32_t type)
     s->base.tb->hyperchain_type = type;
     s->base.tb->hyperchain_target_count = count;
     memcpy(s->base.tb->hyperchain_target_pc, targets, sizeof(targets));
+#if defined(CONFIG_RFICH_DEBUG)
+    fprintf(stderr,
+            "RFICH-DEBUG translate site=0x" TARGET_FMT_lx
+            " targets=%u [0x" TARGET_FMT_lx ",0x" TARGET_FMT_lx
+            ",0x" TARGET_FMT_lx ",0x" TARGET_FMT_lx "]\n",
+            site, count, targets[0], targets[1], targets[2], targets[3]);
+#endif
+#if defined(CONFIG_RFICH_LOG)
+    gen_helper_rfich_linked_attempt(tcg_const_tl(site),
+                                    tcg_const_i32(type));
+#endif
     tcg_gen_hyperchain(dest, count, targets[0], targets[1],
                        targets[2], targets[3]);
     return true;

@@ -537,6 +537,13 @@ static void prepare_hyperchain_depth(TranslationBlock *tb, CPUState *cpu,
 {
     if (!tb->hyperchain_site_pc || !tb->hyperchain_target_count ||
         qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {
+#if defined(CONFIG_RFICH_DEBUG)
+        fprintf(stderr,
+                "RFICH-DEBUG prepare skip site=0x" TARGET_FMT_lx
+                " targets=%u nochain=%d\n",
+                tb->hyperchain_site_pc, tb->hyperchain_target_count,
+                qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN));
+#endif
         return;
     }
 
@@ -544,6 +551,14 @@ static void prepare_hyperchain_depth(TranslationBlock *tb, CPUState *cpu,
         TranslationBlock *target;
         target_ulong target_pc = tb->hyperchain_target_pc[i];
 
+#if defined(CONFIG_RFICH_DEBUG)
+        fprintf(stderr,
+                "RFICH-DEBUG prepare site=0x" TARGET_FMT_lx
+                " index=%u target=0x" TARGET_FMT_lx
+                " offset=%" PRIxPTR " depth=%u\n",
+                tb->hyperchain_site_pc, i, target_pc,
+                tb->hyperchain_patch_offset[i], depth);
+#endif
         if (!target_pc || !tb->hyperchain_patch_offset[i]) {
             continue;
         }

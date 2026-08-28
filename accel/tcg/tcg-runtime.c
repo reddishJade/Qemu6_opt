@@ -219,6 +219,12 @@ void HELPER(hyperchain_observe)(CPUArchState *env, target_ulong site_pc,
     indirect_hyperchain_record(env_cpu(env), site_pc, target, type);
 }
 #endif
+#if defined(CONFIG_RFICH_LOG)
+void HELPER(rfich_linked_attempt)(target_ulong site_pc, uint32_t type)
+{
+    rfich_log_linked_attempt(site_pc, type);
+}
+#endif
 #if defined(CONFIG_PBRP_DEBUG) || defined(CONFIG_PBRP_LOG)
 void HELPER(pbrp_ret_observe)(CPUArchState *env, target_ulong target)
 {

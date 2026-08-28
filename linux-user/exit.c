@@ -50,8 +50,8 @@ void preexit_cleanup(CPUArchState *env, int code)
 #if defined(CONFIG_INDIRECT_PROFILE)
         indirect_profile_dump();
 #endif
-#if defined(CONFIG_RFICH)
-        indirect_hyperchain_dump();
+#if defined(CONFIG_RFICH_LOG)
+        rfich_log_dump();
 #endif
 #if defined(CONFIG_PBRP_LOG) && defined(__sw_64__)
         pbrp_log_dump();

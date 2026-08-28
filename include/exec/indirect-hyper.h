@@ -28,7 +28,6 @@ IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
                                                unsigned *count);
 void indirect_hyperchain_record(struct CPUState *cpu, uint64_t site_pc,
                                 target_ulong target, uint32_t type);
-void indirect_hyperchain_dump(void);
 #else
 static inline IndirectHyperPlan
 indirect_hyperchain_get_plan(uint64_t site_pc, uint32_t type,
@@ -51,10 +50,26 @@ static inline void indirect_hyperchain_record(struct CPUState *cpu,
     (void)target;
     (void)type;
 }
+#endif
 
-static inline void indirect_hyperchain_dump(void)
+#if defined(CONFIG_RFICH_LOG)
+void rfich_log_linked_attempt(uint64_t site_pc, uint32_t type);
+void rfich_log_patch_attempt(void);
+void rfich_log_patch_success(void);
+void rfich_log_patch_skip(void);
+void rfich_log_patch_reset(void);
+void rfich_log_dump(void);
+#else
+static inline void rfich_log_linked_attempt(uint64_t site_pc, uint32_t type)
 {
+    (void)site_pc;
+    (void)type;
 }
+static inline void rfich_log_patch_attempt(void) {}
+static inline void rfich_log_patch_success(void) {}
+static inline void rfich_log_patch_skip(void) {}
+static inline void rfich_log_patch_reset(void) {}
+static inline void rfich_log_dump(void) {}
 #endif
 
 #endif

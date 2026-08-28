@@ -8,6 +8,9 @@
 #if defined(CONFIG_PBRP_LOG)
 #include "exec/pbrp-log.h"
 #endif
+#if defined(CONFIG_RFICH_LOG)
+#include "exec/indirect-hyper.h"
+#endif
 
 /* We're going to re-use TCGType in setting of the SF bit, which controls
    the size of the operation performed.  If we know the values match, it
@@ -2002,6 +2005,11 @@ void patch_hyperchain_reset(TranslationBlock *tb, int index)
 
     if (index < 0 || index >= INDIRECT_HYPER_MAX_TARGETS ||
         !tb->hyperchain_patch_offset[index]) {
+#if defined(CONFIG_RFICH_DEBUG)
+        fprintf(stderr,
+                "RFICH-DEBUG reset skip site=0x" TARGET_FMT_lx
+                " index=%d\n", tb->hyperchain_site_pc, index);
+#endif
         return;
     }
 
@@ -2015,6 +2023,14 @@ void patch_hyperchain_reset(TranslationBlock *tb, int index)
         qatomic_set((uint64_t *)(rw + i * 4), pair);
     }
     flush_idcache_range(rx, rw, sizeof(nops));
+#if defined(CONFIG_RFICH_LOG)
+    rfich_log_patch_reset();
+#endif
+#if defined(CONFIG_RFICH_DEBUG)
+    fprintf(stderr,
+            "RFICH-DEBUG reset site=0x" TARGET_FMT_lx " index=%d\n",
+            tb->hyperchain_site_pc, index);
+#endif
 }
 
 void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
@@ -2026,14 +2042,36 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
     tcg_insn_unit insn[HYPERCHAIN_SLOT_SIZE];
     TCGReg rd = TCG_REG_TMP;
 
+#if defined(CONFIG_RFICH_LOG)
+    rfich_log_patch_attempt();
+#endif
     if (index < 0 || index >= INDIRECT_HYPER_MAX_TARGETS ||
         !tb->hyperchain_patch_offset[index]) {
+#if defined(CONFIG_RFICH_LOG)
+        rfich_log_patch_skip();
+#endif
+#if defined(CONFIG_RFICH_DEBUG)
+        fprintf(stderr,
+                "RFICH-DEBUG patch skip site=0x" TARGET_FMT_lx
+                " index=%d no-slot\n", tb->hyperchain_site_pc, index);
+#endif
         return;
     }
 
     qemu_spin_lock(&target_tb->jmp_lock);
     if ((target_tb->cflags & CF_INVALID) ||
         tb->hyperchain_jmp_dest[index]) {
+#if defined(CONFIG_RFICH_LOG)
+        rfich_log_patch_skip();
+#endif
+#if defined(CONFIG_RFICH_DEBUG)
+        fprintf(stderr,
+                "RFICH-DEBUG patch skip site=0x" TARGET_FMT_lx
+                " index=%d invalid=%d already-linked=%d\n",
+                tb->hyperchain_site_pc, index,
+                !!(target_tb->cflags & CF_INVALID),
+                !!tb->hyperchain_jmp_dest[index]);
+#endif
         qemu_spin_unlock(&target_tb->jmp_lock);
         return;
     }
@@ -2041,6 +2079,14 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
     rx = (uintptr_t)tb->tc.ptr + tb->hyperchain_patch_offset[index];
     rw = rx - tcg_splitwx_diff;
     if (*(uint32_t *)(rw + 4) != OPC_NOP) {
+#if defined(CONFIG_RFICH_LOG)
+        rfich_log_patch_skip();
+#endif
+#if defined(CONFIG_RFICH_DEBUG)
+        fprintf(stderr,
+                "RFICH-DEBUG patch skip site=0x" TARGET_FMT_lx
+                " index=%d slot-busy\n", tb->hyperchain_site_pc, index);
+#endif
         qemu_spin_unlock(&target_tb->jmp_lock);
         return;
     }
@@ -2074,6 +2120,15 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
     tb->hyperchain_jmp_list_next[index] =
         target_tb->hyperchain_jmp_list_head;
     target_tb->hyperchain_jmp_list_head = (uintptr_t)tb | index;
+#if defined(CONFIG_RFICH_LOG)
+    rfich_log_patch_success();
+#endif
+#if defined(CONFIG_RFICH_DEBUG)
+    fprintf(stderr,
+            "RFICH-DEBUG patch site=0x" TARGET_FMT_lx
+            " index=%d target=0x" TARGET_FMT_lx " host=%p\n",
+            tb->hyperchain_site_pc, index, target_tb->pc, target_tb->tc.ptr);
+#endif
     qemu_spin_unlock(&target_tb->jmp_lock);
 }
 #endif

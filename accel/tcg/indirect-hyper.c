@@ -29,6 +29,9 @@ typedef struct HyperSite {
     uint64_t untracked_executions;
     uint64_t linked_fallback_executions;
     uint64_t retranslation_count;
+#if defined(CONFIG_RFICH_LOG)
+    uint64_t linked_attempts;
+#endif
     target_ulong last_target;
     bool linked;
     bool disabled;
@@ -40,6 +43,17 @@ static HyperSite *site_buckets[INDIRECT_HYPER_BUCKETS];
 static QemuMutex hyper_lock;
 static gsize hyper_initialized;
 static volatile sig_atomic_t hyper_forked;
+
+#if defined(CONFIG_RFICH_LOG)
+typedef struct RFICHPatchLog {
+    uint64_t attempts;
+    uint64_t successes;
+    uint64_t skips;
+    uint64_t resets;
+} RFICHPatchLog;
+
+static RFICHPatchLog rfich_patch_log;
+#endif
 
 static void indirect_hyperchain_atfork_child(void)
 {
@@ -65,6 +79,9 @@ static void indirect_hyperchain_check_fork(void)
         memset(site_buckets, 0, sizeof(site_buckets));
         qemu_mutex_destroy(&hyper_lock);
         qemu_mutex_init(&hyper_lock);
+#if defined(CONFIG_RFICH_LOG)
+        memset(&rfich_patch_log, 0, sizeof(rfich_patch_log));
+#endif
         hyper_forked = 0;
     }
 }
@@ -171,6 +188,12 @@ IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
     plan = n ? INDIRECT_HYPER_LINKED : INDIRECT_HYPER_OBSERVE;
 
 out:
+#if defined(CONFIG_RFICH_DEBUG)
+    fprintf(stderr,
+            "RFICH-DEBUG plan site=0x%" PRIx64
+            " type=%u plan=%u targets=%u\n",
+            site_pc, type, plan, *count);
+#endif
     qemu_mutex_unlock(&hyper_lock);
     return plan;
 }
@@ -236,6 +259,14 @@ void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
     if (retranslate) {
         site->retranslation_count++;
     }
+#if defined(CONFIG_RFICH_DEBUG)
+    fprintf(stderr,
+            "RFICH-DEBUG record site=0x%" PRIx64
+            " target=0x" TARGET_FMT_lx " executions=%" PRIu64
+            " linked=%d disabled=%d retranslate=%d\n",
+            site_pc, target, site->executions, site->linked,
+            site->disabled, retranslate);
+#endif
     qemu_mutex_unlock(&hyper_lock);
 
     if (retranslate) {
@@ -245,78 +276,106 @@ void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
     }
 }
 
-static const char *hyper_type_name(uint32_t type)
+#if defined(CONFIG_RFICH_LOG)
+void rfich_log_linked_attempt(uint64_t site_pc, uint32_t type)
 {
-    switch (type) {
-    case INDIRECT_HYPER_CALL:
-        return "indirect_call";
-    case INDIRECT_HYPER_JMP:
-        return "indirect_jmp";
-    default:
-        return "unknown";
-    }
-}
-
-void indirect_hyperchain_dump(void)
-{
-    const char *configured_path = getenv("QEMU_RFICH_OUT");
-    g_autofree char *expanded_path = NULL;
-    FILE *out;
-
-    if (!configured_path || !*configured_path) {
-        return;
-    }
+    HyperSite *site;
 
     indirect_hyperchain_init();
     indirect_hyperchain_check_fork();
-    {
-        const char *pid_marker = strstr(configured_path, "%p");
+    qemu_mutex_lock(&hyper_lock);
+    site = find_or_create_site(site_pc, type);
+    site->linked_attempts++;
+    qemu_mutex_unlock(&hyper_lock);
+}
 
-        if (pid_marker) {
-            expanded_path = g_strdup_printf("%.*s%ld%s",
-                (int)(pid_marker - configured_path), configured_path,
-                (long)getpid(), pid_marker + 2);
-            configured_path = expanded_path;
-        }
-    }
+void rfich_log_patch_attempt(void)
+{
+    qatomic_inc(&rfich_patch_log.attempts);
+}
 
-    out = fopen(configured_path, "w");
-    if (!out) {
-        fprintf(stderr, "indirect hyperchain: cannot open %s: %s\n",
-                configured_path, strerror(errno));
-        return;
-    }
+void rfich_log_patch_success(void)
+{
+    qatomic_inc(&rfich_patch_log.successes);
+}
 
-    fprintf(out, "site_pc,type,executions,target_changes,untracked_executions,"
-                 "linked,disabled,linked_fallback_executions,retranslations");
-    for (unsigned i = 0; i < INDIRECT_HYPER_MAX_TARGETS; i++) {
-        fprintf(out, ",target%u,target%u_count", i + 1, i + 1);
-    }
-    fputc('\n', out);
+void rfich_log_patch_skip(void)
+{
+    qatomic_inc(&rfich_patch_log.skips);
+}
 
+void rfich_log_patch_reset(void)
+{
+    qatomic_inc(&rfich_patch_log.resets);
+}
+
+void rfich_log_dump(void)
+{
+    uint64_t sites = 0;
+    uint64_t linked_sites = 0;
+    uint64_t disabled_sites = 0;
+    uint64_t observations = 0;
+    uint64_t target_changes = 0;
+    uint64_t untracked = 0;
+    uint64_t linked_attempts = 0;
+    uint64_t fallbacks = 0;
+    uint64_t retranslations = 0;
+
+    indirect_hyperchain_init();
+    indirect_hyperchain_check_fork();
     qemu_mutex_lock(&hyper_lock);
     for (unsigned bucket = 0; bucket < INDIRECT_HYPER_BUCKETS; bucket++) {
         for (HyperSite *site = site_buckets[bucket]; site; site = site->next) {
-            HyperTarget sorted[INDIRECT_HYPER_MAX_TARGETS];
-
-            memcpy(sorted, site->targets, sizeof(sorted));
-            qsort(sorted, ARRAY_SIZE(sorted), sizeof(sorted[0]),
-                  hyper_target_cmp);
-            fprintf(out, "0x%016" PRIx64 ",%s,%" PRIu64 ",%" PRIu64
-                         ",%" PRIu64 ",%u,%u,%" PRIu64 ",%" PRIu64,
-                    site->site_pc, hyper_type_name(site->type),
-                    site->executions, site->target_changes,
-                    site->untracked_executions, site->linked,
-                    site->disabled, site->linked_fallback_executions,
-                    site->retranslation_count);
-            for (unsigned i = 0; i < ARRAY_SIZE(sorted); i++) {
-                fprintf(out, ",0x%016" PRIx64 ",%" PRIu64,
-                        sorted[i].target, sorted[i].count);
-            }
-            fputc('\n', out);
+            sites++;
+            linked_sites += site->linked;
+            disabled_sites += site->disabled;
+            observations += site->executions;
+            target_changes += site->target_changes;
+            untracked += site->untracked_executions;
+            linked_attempts += site->linked_attempts;
+            fallbacks += site->linked_fallback_executions;
+            retranslations += site->retranslation_count;
         }
     }
     qemu_mutex_unlock(&hyper_lock);
-    fclose(out);
-    fprintf(stderr, "indirect hyperchain: wrote %s\n", configured_path);
+
+    fprintf(stderr,
+            "\n=== RFICH Log ===\n"
+            "[sites]\n"
+            "  total              : %" PRIu64 "\n"
+            "  linked             : %" PRIu64 "\n"
+            "  disabled           : %" PRIu64 "\n"
+            "  observing          : %" PRIu64 "\n"
+            "[runtime feedback]\n"
+            "  observations       : %" PRIu64 "\n"
+            "  target changes     : %" PRIu64 "\n"
+            "  untracked targets  : %" PRIu64 "\n"
+            "  retranslations     : %" PRIu64 "\n"
+            "[linked execution]\n"
+            "  attempts           : %" PRIu64 "\n"
+            "  fast hits          : %" PRIu64 "\n"
+            "  fallbacks          : %" PRIu64 "\n"
+            "  hit rate           : %.2f%%\n"
+            "[patch]\n"
+            "  attempts           : %" PRIu64 "\n"
+            "  successes          : %" PRIu64 "\n"
+            "  skips              : %" PRIu64 "\n"
+            "  resets             : %" PRIu64 "\n"
+            "=================\n",
+            sites, linked_sites, disabled_sites,
+            sites - linked_sites - disabled_sites,
+            observations, target_changes, untracked, retranslations,
+            linked_attempts,
+            linked_attempts >= fallbacks ? linked_attempts - fallbacks : 0,
+            fallbacks,
+            linked_attempts
+                ? (double)(linked_attempts - MIN(linked_attempts, fallbacks)) /
+                  linked_attempts * 100.0
+                : 0.0,
+            qatomic_read(&rfich_patch_log.attempts),
+            qatomic_read(&rfich_patch_log.successes),
+            qatomic_read(&rfich_patch_log.skips),
+            qatomic_read(&rfich_patch_log.resets));
+    fflush(stderr);
 }
+#endif
