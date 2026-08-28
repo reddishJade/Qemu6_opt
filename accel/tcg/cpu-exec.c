@@ -46,6 +46,9 @@
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
 #include "exec/tcg-stats.h"
 #endif
+#if defined(CONFIG_PBRP_LOG) && defined(__sw_64__)
+#include "exec/pbrp-log.h"
+#endif
 #if defined(CONFIG_RFICH)
 #include "exec/indirect-hyper.h"
 #endif
@@ -433,16 +436,21 @@ static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
 
 static TranslationBlock *get_next_tb(TranslationBlock *tb, CPUState *cpu,
                                      target_ulong cs_base, uint32_t flags,
-                                     uint32_t cflags)
+                                     uint32_t cflags, bool *was_hit)
 {
     TranslationBlock *next;
 
     next = tb_lookup(cpu, tb->next_pc, cs_base, flags, cflags);
     if (!next) {
+        if (was_hit) {
+            *was_hit = false;
+        }
         next = tb_gen_code(cpu, tb->next_pc, cs_base, flags, cflags);
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
         TCG_STAT_GEN_INC(tb_gen_count);
 #endif
+    } else if (was_hit) {
+        *was_hit = true;
     }
     return next;
 }
@@ -468,14 +476,25 @@ static void pre_translate(TranslationBlock *tb, CPUState *cpu,
     TranslationBlock *next = NULL;
     TranslationBlock *curr = tb;
     uint64_t depth = 0;
+#if defined(CONFIG_PBRP_LOG) || defined(CONFIG_PBRP_DEBUG)
+    uint64_t hits = 0;
+#endif
 
     while (curr && curr->next_pc && depth < PRE_TRANSLATE_MAX_DEPTH) {
-        next = get_next_tb(curr, cpu, cs_base, flags, cflags);
+#if defined(CONFIG_PBRP_LOG) || defined(CONFIG_PBRP_DEBUG)
+        bool was_hit = false;
+        next = get_next_tb(curr, cpu, cs_base, flags, cflags, &was_hit);
+#else
+        next = get_next_tb(curr, cpu, cs_base, flags, cflags, NULL);
+#endif
         if (!next) {
             break;
         }
 
         depth++;
+#if defined(CONFIG_PBRP_LOG) || defined(CONFIG_PBRP_DEBUG)
+        hits += was_hit;
+#endif
 
         qatomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(curr->next_pc)],
                     next);
@@ -494,6 +513,16 @@ static void pre_translate(TranslationBlock *tb, CPUState *cpu,
 
         curr = next;
     }
+
+#if defined(CONFIG_PBRP_LOG)
+    pbrp_log_pre_translate(depth, hits);
+#endif
+#if defined(CONFIG_PBRP_DEBUG)
+    fprintf(stderr,
+            "PBRP-DEBUG pre-translate pc=0x" TARGET_FMT_lx
+            " depth=%" PRIu64 " hits=%" PRIu64 "\n",
+            tb->pc, depth, hits);
+#endif
 }
 #endif
 

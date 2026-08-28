@@ -74,6 +74,7 @@ configure_qemu() {
             --disable-inst-opt \
             --disable-func-opt \
             --enable-pbrp \
+            --enable-pbrp-log \
             "$@"
         make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" qemu-x86_64
     )

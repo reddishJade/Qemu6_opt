@@ -7781,6 +7781,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             tcg_const_tl(s->pc_start - s->cs_base), s->T0,
             tcg_const_i32(INDIRECT_PROFILE_RET));
 #endif
+#if defined(CONFIG_PBRP_DEBUG) || defined(CONFIG_PBRP_LOG)
+        gen_helper_pbrp_ret_observe(cpu_env, s->T0);
+#endif
         gen_ret(s, s->T0);
 #else
         /* Note that gen_pop_T0 uses a zero-extending load.  */

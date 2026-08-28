@@ -35,6 +35,9 @@ extern void __gcov_dump(void);
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
 #include "exec/tcg-stats.h"
 #endif
+#if defined(CONFIG_PBRP_LOG) && defined(__sw_64__)
+#include "exec/pbrp-log.h"
+#endif
 
 void preexit_cleanup(CPUArchState *env, int code)
 {
@@ -49,6 +52,9 @@ void preexit_cleanup(CPUArchState *env, int code)
 #endif
 #if defined(CONFIG_RFICH)
         indirect_hyperchain_dump();
+#endif
+#if defined(CONFIG_PBRP_LOG) && defined(__sw_64__)
+        pbrp_log_dump();
 #endif
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
         tcg_stats_dump();

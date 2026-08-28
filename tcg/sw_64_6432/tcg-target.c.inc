@@ -5,6 +5,9 @@
 
 #include "../tcg-pool.c.inc"
 #include "qemu/bitops.h"
+#if defined(CONFIG_PBRP_LOG)
+#include "exec/pbrp-log.h"
+#endif
 
 /* We're going to re-use TCGType in setting of the SF bit, which controls
    the size of the operation performed.  If we know the values match, it
@@ -2154,6 +2157,10 @@ void patch_pbrp_reset(TranslationBlock *tb)
     tcg_insn_unit nops[PBRP_NOP_SLOT_SIZE];
 
     if (!tb->jmp_to_next_offset) {
+#if defined(CONFIG_PBRP_DEBUG)
+        fprintf(stderr, "PBRP-DEBUG reset skip pc=0x" TARGET_FMT_lx
+                " no-slot\n", tb->pc);
+#endif
         return;
     }
 
@@ -2166,6 +2173,12 @@ void patch_pbrp_reset(TranslationBlock *tb)
                         nops[i], nops[i + 1]);
     }
     flush_idcache_range(addrs.jmp_rx, addrs.jmp_rw, sizeof(nops));
+#if defined(CONFIG_PBRP_LOG)
+    pbrp_log_patch_reset();
+#endif
+#if defined(CONFIG_PBRP_DEBUG)
+    fprintf(stderr, "PBRP-DEBUG reset pc=0x" TARGET_FMT_lx "\n", tb->pc);
+#endif
 }
 
 /*
@@ -2175,20 +2188,45 @@ void patch_pbrp_reset(TranslationBlock *tb)
  */
 void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb)
 {
+#if defined(CONFIG_PBRP_LOG)
+    pbrp_log_patch_attempt();
+#endif
     if (!tb->jmp_to_next_offset) {
-        return;  /* no PBRP slot reserved for this TB */
+#if defined(CONFIG_PBRP_LOG)
+        pbrp_log_patch_skip();
+#endif
+#if defined(CONFIG_PBRP_DEBUG)
+        fprintf(stderr, "PBRP-DEBUG patch skip pc=0x" TARGET_FMT_lx
+                " no-slot\n", tb->pc);
+#endif
+        return;
     }
 
     patch_addresses_t addrs = get_patch_addresses(tb);
 
     qemu_spin_lock(&next_tb->jmp_lock);
     if ((next_tb->cflags & CF_INVALID) || tb->pbrp_jmp_dest) {
+#if defined(CONFIG_PBRP_LOG)
+        pbrp_log_patch_skip();
+#endif
+#if defined(CONFIG_PBRP_DEBUG)
+        fprintf(stderr, "PBRP-DEBUG patch skip pc=0x" TARGET_FMT_lx
+                " invalid=%d already-linked=%d\n", tb->pc,
+                !!(next_tb->cflags & CF_INVALID), !!tb->pbrp_jmp_dest);
+#endif
         qemu_spin_unlock(&next_tb->jmp_lock);
         return;
     }
 
     /* Skip if already patched (second insn is no longer NOP) */
     if (*(uint32_t *)(addrs.jmp_rw + 4) != OPC_NOP) {
+#if defined(CONFIG_PBRP_LOG)
+        pbrp_log_patch_skip();
+#endif
+#if defined(CONFIG_PBRP_DEBUG)
+        fprintf(stderr, "PBRP-DEBUG patch skip pc=0x" TARGET_FMT_lx
+                " slot-busy\n", tb->pc);
+#endif
         qemu_spin_unlock(&next_tb->jmp_lock);
         return;
     }
@@ -2208,6 +2246,14 @@ void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb)
     tb->pbrp_jmp_dest = (uintptr_t)next_tb;
     tb->pbrp_jmp_list_next = next_tb->pbrp_jmp_list_head;
     next_tb->pbrp_jmp_list_head = (uintptr_t)tb;
+#if defined(CONFIG_PBRP_LOG)
+    pbrp_log_patch_success();
+#endif
+#if defined(CONFIG_PBRP_DEBUG)
+    fprintf(stderr, "PBRP-DEBUG patch pc=0x" TARGET_FMT_lx
+            " next=0x" TARGET_FMT_lx " host=%p\n",
+            tb->pc, next_tb->pc, next_tb->tc.ptr);
+#endif
     qemu_spin_unlock(&next_tb->jmp_lock);
 }
 #endif

@@ -48,6 +48,9 @@
 #if defined(CONFIG_TCG_STATS) && defined(__sw_64__)
 #include "exec/tcg-stats.h"
 #endif
+#if defined(CONFIG_PBRP_LOG) && defined(__sw_64__)
+#include "exec/pbrp-log.h"
+#endif
 
 /* 32-bit helpers */
 
@@ -214,6 +217,22 @@ void HELPER(hyperchain_observe)(CPUArchState *env, target_ulong site_pc,
                                 target_ulong target, uint32_t type)
 {
     indirect_hyperchain_record(env_cpu(env), site_pc, target, type);
+}
+#endif
+#if defined(CONFIG_PBRP_DEBUG) || defined(CONFIG_PBRP_LOG)
+void HELPER(pbrp_ret_observe)(CPUArchState *env, target_ulong target)
+{
+    bool hit = target == env->gpc;
+
+#if defined(CONFIG_PBRP_LOG)
+    pbrp_log_ret(hit);
+#endif
+#if defined(CONFIG_PBRP_DEBUG)
+    fprintf(stderr,
+            "PBRP-DEBUG ret target=0x" TARGET_FMT_lx
+            " expected=0x" TARGET_FMT_lx " hit=%d\n",
+            target, env->gpc, hit);
+#endif
 }
 #endif
 #if defined(CONFIG_NATIVE_LIBS)
