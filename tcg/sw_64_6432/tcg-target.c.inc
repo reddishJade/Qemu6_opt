@@ -1986,6 +1986,21 @@ static inline void emit_pbrp_nop_slot(TCGContext *s)
     }
 }
 
+/*
+ * A direct RFICH hit exits before goto_ptr.  In a combined PBRP+RFICH build,
+ * reserve the PBRP state-update slot before that early exit so indirect CALL
+ * targets still prepare their return path.  Clear only the code-generation
+ * context copy: tb->next_pc remains available to patch_pbrp().
+ */
+static inline void emit_pbrp_early_exit_slot(TCGContext *s)
+{
+    if (s->tb_next_pc) {
+        *(s->pbrp_patch_offset) = tcg_current_code_size(s);
+        emit_pbrp_nop_slot(s);
+        s->tb_next_pc = 0;
+    }
+}
+
 #endif /* CONFIG_FAST_RET && __sw_64__ */
 
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
@@ -3210,6 +3225,9 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
          * through a patched host TB slot; fall-through is the ordinary
          * lookup path.
          */
+#if defined(CONFIG_FAST_RET)
+        emit_pbrp_early_exit_slot(s);
+#endif
         {
             TCGArg targets[INDIRECT_HYPER_MAX_TARGETS] = { a1, a2, a3, a4 };
             unsigned count = MIN(s->hyperchain_target_count,
