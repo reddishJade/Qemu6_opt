@@ -572,11 +572,19 @@ static void prepare_hyperchain_depth(TranslationBlock *tb, CPUState *cpu,
             target = tb_lookup(cpu, target_pc, cs_base, flags, cflags);
             if (!target) {
                 target = tb_gen_code(cpu, target_pc, cs_base, flags, cflags);
+#if defined(CONFIG_PRE_TRANSLATE)
+                if (target && target != tb && target->next_pc) {
+                    /* This target bypasses tb_find()'s post-generation hooks.
+                     * Prepare its PBRP next_pc chain before an RFICH edge can
+                     * enter it directly and reach an unpatched early-exit
+                     * state-update slot. */
+                    pre_translate(target, cpu, cs_base, flags, cflags);
+                }
+#endif
                 if (target && target != tb &&
                     depth < HYPERCHAIN_PREPARE_MAX_DEPTH) {
-                    /* A target generated here bypasses tb_find() just like a
-                     * pretranslated TB.  Prepare its own learned slots before
-                     * this source can jump to it directly. */
+                    /* Prepare nested learned slots only after the target's
+                     * PBRP post-generation work is complete. */
                     prepare_hyperchain_depth(target, cpu, cs_base, flags,
                                              cflags, depth + 1);
                 }
