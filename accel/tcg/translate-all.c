@@ -1687,8 +1687,10 @@ static inline void tb_jmp_unlink(TranslationBlock *dest)
 
             if ((src_dest & ~(uintptr_t)1) == (uintptr_t)dest) {
                 patch_hyperchain_reset(src, index);
-                /* Preserve the source-invalidation marker, if present. */
-                qatomic_set(&src->hyperchain_jmp_dest[index], src_dest & 1);
+                /* Atomically clear only the destination pointer.  A source
+                 * invalidation may set the LSB while waiting for this lock;
+                 * an RMW mask preserves that concurrent marker. */
+                qatomic_and(&src->hyperchain_jmp_dest[index], (uintptr_t)1);
                 src->hyperchain_jmp_list_next[index] = 0;
             }
             ptr = next;
