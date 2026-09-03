@@ -1585,6 +1585,51 @@ static inline void tb_remove_from_jmp_list(TranslationBlock *orig, int n_orig)
     g_assert_not_reached();
 }
 
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
+/* Remove one outgoing Hyperchain edge while preventing a concurrent patch
+ * from re-inserting it into a source TB that is being invalidated. */
+static void tb_remove_from_hyperchain_jmp_list(TranslationBlock *orig,
+                                                unsigned orig_index)
+{
+    uintptr_t ptr, ptr_locked;
+    TranslationBlock *dest;
+    uintptr_t *pprev;
+
+    ptr = qatomic_or_fetch(&orig->hyperchain_jmp_dest[orig_index], 1);
+    dest = (TranslationBlock *)(ptr & ~(uintptr_t)1);
+    if (!dest) {
+        return;
+    }
+
+    qemu_spin_lock(&dest->jmp_lock);
+    ptr_locked = qatomic_read(&orig->hyperchain_jmp_dest[orig_index]);
+    if ((ptr_locked & ~(uintptr_t)1) != (uintptr_t)dest) {
+        qemu_spin_unlock(&dest->jmp_lock);
+        g_assert(ptr_locked == 1 &&
+                 (qatomic_read(&dest->cflags) & CF_INVALID));
+        return;
+    }
+
+    pprev = &dest->hyperchain_jmp_list_head;
+    while (*pprev) {
+        uintptr_t entry = *pprev;
+        TranslationBlock *src =
+            (TranslationBlock *)(entry & ~(uintptr_t)3);
+        unsigned index = entry & 3;
+
+        if (src == orig && index == orig_index) {
+            *pprev = src->hyperchain_jmp_list_next[index];
+            patch_hyperchain_reset(orig, orig_index);
+            orig->hyperchain_jmp_list_next[orig_index] = 0;
+            qemu_spin_unlock(&dest->jmp_lock);
+            return;
+        }
+        pprev = &src->hyperchain_jmp_list_next[index];
+    }
+    g_assert_not_reached();
+}
+#endif
+
 /* reset the jump entry 'n' of a TB so that it is not chained to
    another TB */
 static inline void tb_reset_jump(TranslationBlock *tb, int n)
@@ -1637,9 +1682,13 @@ static inline void tb_jmp_unlink(TranslationBlock *dest)
             unsigned index = ptr & 3;
             uintptr_t next = src->hyperchain_jmp_list_next[index];
 
-            if (src->hyperchain_jmp_dest[index] == (uintptr_t)dest) {
+            uintptr_t src_dest =
+                qatomic_read(&src->hyperchain_jmp_dest[index]);
+
+            if ((src_dest & ~(uintptr_t)1) == (uintptr_t)dest) {
                 patch_hyperchain_reset(src, index);
-                src->hyperchain_jmp_dest[index] = 0;
+                /* Preserve the source-invalidation marker, if present. */
+                qatomic_set(&src->hyperchain_jmp_dest[index], src_dest & 1);
                 src->hyperchain_jmp_list_next[index] = 0;
             }
             ptr = next;
@@ -1702,6 +1751,11 @@ static void do_tb_phys_invalidate(TranslationBlock *tb, bool rm_from_page_list)
     /* suppress this TB from the two jump lists */
     tb_remove_from_jmp_list(tb, 0);
     tb_remove_from_jmp_list(tb, 1);
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
+    for (unsigned i = 0; i < INDIRECT_HYPER_MAX_TARGETS; i++) {
+        tb_remove_from_hyperchain_jmp_list(tb, i);
+    }
+#endif
 
     /* suppress any remaining jumps to this TB */
     tb_jmp_unlink(tb);
@@ -1981,9 +2035,6 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 
     tcg_func_start(tcg_ctx);
 
-#if defined(CONFIG_RFICH) && defined(__sw_64__)
-    tcg_ctx->hyperchain_target_count = 0;
-#endif
     tcg_ctx->cpu = env_cpu(env);
     gen_intermediate_code(cpu, tb, max_insns);
 

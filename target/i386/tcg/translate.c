@@ -229,14 +229,12 @@ static bool gen_hyperchain(DisasContext *s, TCGv dest, uint32_t type)
     if (plan == INDIRECT_HYPER_DISABLED) {
         return false;
     }
-    if (plan != INDIRECT_HYPER_LINKED) {
+    if (plan != INDIRECT_HYPER_LINKED &&
+        plan != INDIRECT_HYPER_LINKED_FEEDBACK) {
         return true;
     }
 
-    /*
-     * Keep one dynamic Hyperchain descriptor per TB.  Other indirect exits
-     * in the same TB retain observation until their own policy converges.
-     */
+    /* Keep one dynamic Hyperchain descriptor per TB. */
     if (s->base.tb->hyperchain_site_pc) {
         return true;
     }
@@ -256,7 +254,21 @@ static bool gen_hyperchain(DisasContext *s, TCGv dest, uint32_t type)
     gen_helper_rfich_linked_attempt(tcg_const_tl(site),
                                     tcg_const_i32(type));
 #endif
-    tcg_gen_hyperchain(dest, count, targets[0], targets[1],
+
+    if (plan == INDIRECT_HYPER_LINKED_FEEDBACK && count > 1) {
+        /* Probe only a bounded startup/relearn interval.  The head remains a
+         * helper-free direct jump; a head miss records competing traffic
+         * before trying the tail slots.  Policy later retranslates this as one
+         * full helper-free chain. */
+        tcg_gen_hyperchain(dest, 0, 1, targets[0], 0, 0, 0);
+        gen_helper_hyperchain_feedback(cpu_env, tcg_const_tl(site), dest,
+                                       tcg_const_i32(type));
+        tcg_gen_hyperchain(dest, 1, count - 1, targets[1], targets[2],
+                           targets[3], 0);
+        return false;
+    }
+
+    tcg_gen_hyperchain(dest, 0, count, targets[0], targets[1],
                        targets[2], targets[3]);
     return true;
 }

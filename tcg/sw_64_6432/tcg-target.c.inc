@@ -2015,7 +2015,6 @@ static inline void emit_hyperchain_nop_slot(TCGContext *s)
 
 void patch_hyperchain_reset(TranslationBlock *tb, int index)
 {
-    tcg_insn_unit nops[HYPERCHAIN_SLOT_SIZE];
     uintptr_t rx, rw;
 
     if (index < 0 || index >= INDIRECT_HYPER_MAX_TARGETS ||
@@ -2030,14 +2029,17 @@ void patch_hyperchain_reset(TranslationBlock *tb, int index)
 
     rx = (uintptr_t)tb->tc.ptr + tb->hyperchain_patch_offset[index];
     rw = rx - tcg_splitwx_diff;
-    for (int i = 0; i < HYPERCHAIN_SLOT_SIZE; i++) {
-        nops[i] = OPC_NOP;
+    /* Unpublish the JMP instruction first.  Once every CPU sees that NOP,
+     * the address-construction prefix can be removed without exposing a jump
+     * through a partially reset temporary register.  Naturally aligned
+     * 32-bit instruction stores avoid assuming 64-bit slot alignment. */
+    qatomic_set((uint32_t *)(rw + 4 * (HYPERCHAIN_SLOT_SIZE - 1)), OPC_NOP);
+    flush_idcache_range(rx + 4 * (HYPERCHAIN_SLOT_SIZE - 1),
+                        rw + 4 * (HYPERCHAIN_SLOT_SIZE - 1), 4);
+    for (int i = 0; i < HYPERCHAIN_SLOT_SIZE - 1; i++) {
+        qatomic_set((uint32_t *)(rw + i * 4), OPC_NOP);
     }
-    for (int i = 0; i < HYPERCHAIN_SLOT_SIZE; i += 2) {
-        uint64_t pair = (uint64_t)nops[i + 1] << 32 | nops[i];
-        qatomic_set((uint64_t *)(rw + i * 4), pair);
-    }
-    flush_idcache_range(rx, rw, sizeof(nops));
+    flush_idcache_range(rx, rw, 4 * (HYPERCHAIN_SLOT_SIZE - 1));
 #if defined(CONFIG_RFICH_LOG)
     rfich_log_patch_reset();
 #endif
@@ -2073,9 +2075,17 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
         return;
     }
 
+    if (qatomic_read(&tb->hyperchain_jmp_dest[index])) {
+#if defined(CONFIG_RFICH_LOG)
+        rfich_log_patch_skip();
+#endif
+        return;
+    }
+
     qemu_spin_lock(&target_tb->jmp_lock);
-    if ((target_tb->cflags & CF_INVALID) ||
-        tb->hyperchain_jmp_dest[index]) {
+    if ((qatomic_read(&target_tb->cflags) & CF_INVALID) ||
+        (qatomic_read(&tb->cflags) & CF_INVALID) ||
+        qatomic_read(&tb->hyperchain_jmp_dest[index])) {
 #if defined(CONFIG_RFICH_LOG)
         rfich_log_patch_skip();
 #endif
@@ -2084,8 +2094,8 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
                 "RFICH-DEBUG patch skip site=0x" TARGET_FMT_lx
                 " index=%d invalid=%d already-linked=%d\n",
                 tb->hyperchain_site_pc, index,
-                !!(target_tb->cflags & CF_INVALID),
-                !!tb->hyperchain_jmp_dest[index]);
+                !!(qatomic_read(&target_tb->cflags) & CF_INVALID),
+                !!qatomic_read(&tb->hyperchain_jmp_dest[index]));
 #endif
         qemu_spin_unlock(&target_tb->jmp_lock);
         return;
@@ -2093,7 +2103,7 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
 
     rx = (uintptr_t)tb->tc.ptr + tb->hyperchain_patch_offset[index];
     rw = rx - tcg_splitwx_diff;
-    if (*(uint32_t *)(rw + 4) != OPC_NOP) {
+    if (qatomic_read((uint32_t *)(rw + 4)) != OPC_NOP) {
 #if defined(CONFIG_RFICH_LOG)
         rfich_log_patch_skip();
 #endif
@@ -2125,16 +2135,30 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
     insn[5] = OPC_JMP | (TCG_REG_ZERO & 0x1f) << 21 |
               (rd & 0x1f) << 16;
 
-    for (int i = 0; i < HYPERCHAIN_SLOT_SIZE; i += 2) {
-        uint64_t pair = (uint64_t)insn[i + 1] << 32 | insn[i];
-        qatomic_set((uint64_t *)(rw + i * 4), pair);
+    if (qatomic_cmpxchg(&tb->hyperchain_jmp_dest[index], 0,
+                        (uintptr_t)target_tb) != 0) {
+#if defined(CONFIG_RFICH_LOG)
+        rfich_log_patch_skip();
+#endif
+        qemu_spin_unlock(&target_tb->jmp_lock);
+        return;
     }
-    flush_idcache_range(rx, rw, sizeof(insn));
-
-    tb->hyperchain_jmp_dest[index] = (uintptr_t)target_tb;
     tb->hyperchain_jmp_list_next[index] =
         target_tb->hyperchain_jmp_list_head;
     target_tb->hyperchain_jmp_list_head = (uintptr_t)tb | index;
+
+    /* Publish every address-construction instruction before atomically
+     * installing the final JMP.  Reset uses the exact inverse order. */
+    for (int i = 0; i < HYPERCHAIN_SLOT_SIZE - 1; i++) {
+        qatomic_set((uint32_t *)(rw + i * 4), insn[i]);
+    }
+    flush_idcache_range(rx, rw, 4 * (HYPERCHAIN_SLOT_SIZE - 1));
+    {
+        int i = HYPERCHAIN_SLOT_SIZE - 1;
+
+        qatomic_set((uint32_t *)(rw + i * 4), insn[i]);
+        flush_idcache_range(rx + i * 4, rw + i * 4, 4);
+    }
 #if defined(CONFIG_RFICH_LOG)
     rfich_log_patch_success();
 #endif
@@ -3048,10 +3072,6 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
     TCGArg a0 = args[0];
     TCGArg a1 = args[1];
     TCGArg a2 = args[2];
-#if defined(CONFIG_RFICH) && defined(__sw_64__)
-    TCGArg a3 = args[3];
-    TCGArg a4 = args[4];
-#endif
     int c2 = const_args[2];
 
     /* Some operands are defined with "rZ" constraint, a register or
@@ -3220,8 +3240,8 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
     case INDEX_op_hyperchain:
         /*
-         * a0 is the guest target; a1..a4 are learned target PCs.  The
-         * context carries the number of valid entries.  A hit leaves
+         * a0 is the guest target, a1 packs slot base/count, and a2..a5
+         * are learned target PCs.  A hit leaves
          * through a patched host TB slot; fall-through is the ordinary
          * lookup path.
          */
@@ -3229,17 +3249,23 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
         emit_pbrp_early_exit_slot(s);
 #endif
         {
-            TCGArg targets[INDIRECT_HYPER_MAX_TARGETS] = { a1, a2, a3, a4 };
-            unsigned count = MIN(s->hyperchain_target_count,
-                                 INDIRECT_HYPER_MAX_TARGETS);
+            TCGArg targets[INDIRECT_HYPER_MAX_TARGETS] = {
+                a2, args[3], args[4], args[5]
+            };
+            unsigned slot_base = a1 >> 8;
+            unsigned count = a1 & 0xff;
 
+            tcg_debug_assert(slot_base + count <=
+                             INDIRECT_HYPER_MAX_TARGETS);
             for (unsigned i = 0; i < count; i++) {
+                unsigned slot = slot_base + i;
+
                 tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_TMP2, targets[i]);
                 tcg_out_insn_simpleReg(s, OPC_SUBL, TCG_REG_TMP2,
                                        TCG_REG_TMP2, a0);
                 tcg_out_insn_br(s, OPC_BNE, TCG_REG_TMP2,
                                 HYPERCHAIN_SLOT_SIZE);
-                s->hyperchain_patch_offset[i] = tcg_current_code_size(s);
+                s->hyperchain_patch_offset[slot] = tcg_current_code_size(s);
                 emit_hyperchain_nop_slot(s);
             }
         }

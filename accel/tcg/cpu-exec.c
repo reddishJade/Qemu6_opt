@@ -559,7 +559,8 @@ static void prepare_hyperchain_depth(TranslationBlock *tb, CPUState *cpu,
                 tb->hyperchain_site_pc, i, target_pc,
                 tb->hyperchain_patch_offset[i], depth);
 #endif
-        if (!target_pc || !tb->hyperchain_patch_offset[i]) {
+        if (!target_pc || !tb->hyperchain_patch_offset[i] ||
+            qatomic_read(&tb->hyperchain_jmp_dest[i])) {
             continue;
         }
         /* The source TB is not in the cache yet.  Reuse it for a self-loop

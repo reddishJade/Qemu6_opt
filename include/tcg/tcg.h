@@ -630,7 +630,6 @@ struct TCGContext {
 #endif
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
     uintptr_t *hyperchain_patch_offset;
-    uint32_t hyperchain_target_count;
 #endif
 
     TCGRegSet reserved_regs;

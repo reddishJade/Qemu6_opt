@@ -218,6 +218,12 @@ void HELPER(hyperchain_observe)(CPUArchState *env, target_ulong site_pc,
 {
     indirect_hyperchain_record(env_cpu(env), site_pc, target, type);
 }
+
+void HELPER(hyperchain_feedback)(CPUArchState *env, target_ulong site_pc,
+                                 target_ulong target, uint32_t type)
+{
+    indirect_hyperchain_feedback(env_cpu(env), site_pc, target, type);
+}
 #endif
 #if defined(CONFIG_RFICH_LOG)
 void HELPER(rfich_linked_attempt)(target_ulong site_pc, uint32_t type)

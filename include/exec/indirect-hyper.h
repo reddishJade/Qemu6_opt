@@ -19,6 +19,7 @@ typedef enum IndirectHyperPlan {
     INDIRECT_HYPER_DISABLED,
     INDIRECT_HYPER_OBSERVE,
     INDIRECT_HYPER_LINKED,
+    INDIRECT_HYPER_LINKED_FEEDBACK,
 } IndirectHyperPlan;
 
 #if defined(CONFIG_RFICH)
@@ -28,6 +29,8 @@ IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
                                                unsigned *count);
 void indirect_hyperchain_record(struct CPUState *cpu, uint64_t site_pc,
                                 target_ulong target, uint32_t type);
+void indirect_hyperchain_feedback(struct CPUState *cpu, uint64_t site_pc,
+                                  target_ulong target, uint32_t type);
 #else
 static inline IndirectHyperPlan
 indirect_hyperchain_get_plan(uint64_t site_pc, uint32_t type,
@@ -44,6 +47,16 @@ static inline void indirect_hyperchain_record(struct CPUState *cpu,
                                               uint64_t site_pc,
                                               target_ulong target,
                                               uint32_t type)
+{
+    (void)cpu;
+    (void)site_pc;
+    (void)target;
+    (void)type;
+}
+static inline void indirect_hyperchain_feedback(struct CPUState *cpu,
+                                                uint64_t site_pc,
+                                                target_ulong target,
+                                                uint32_t type)
 {
     (void)cpu;
     (void)site_pc;
