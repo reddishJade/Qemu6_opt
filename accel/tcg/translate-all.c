@@ -1999,6 +1999,11 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tb->cflags = cflags;
     tb->trace_vcpu_dstate = *cpu->trace_dstate;
     tcg_ctx->tb_cflags = cflags;
+ tb_overflow:
+    /* gen_intermediate_code() and tcg_gen_code() derive this metadata anew.
+     * Reset it on the initial pass and every oversized-TB (-2) retry so a
+     * shortened translation cannot retain descriptors or patch offsets from
+     * the abandoned, longer translation. */
 #if (defined(CONFIG_FAST_RET) || defined(CONFIG_PRE_TRANSLATE)) && defined(__sw_64__)
     tb->next_pc = 0;
 #endif
@@ -2022,7 +2027,6 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     memset(tb->hyperchain_jmp_list_next, 0,
            sizeof(tb->hyperchain_jmp_list_next));
 #endif
- tb_overflow:
 
 #ifdef CONFIG_PROFILER
     /* includes aborted translations because of exceptions */
