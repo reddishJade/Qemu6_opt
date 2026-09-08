@@ -218,29 +218,28 @@ static void gen_eob(DisasContext *s);
 static void gen_jr(DisasContext *s, TCGv dest);
 
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
-static bool gen_hyperchain(DisasContext *s, TCGv dest, uint32_t type)
+/* Return true only when this translation needs the startup observe helper. */
+static bool gen_hyperchain(DisasContext *s, TCGv dest)
 {
     target_ulong site = s->pc_start - s->cs_base;
     target_ulong targets[INDIRECT_HYPER_MAX_TARGETS] = {};
     IndirectHyperPlan plan;
     unsigned count;
 
-    plan = indirect_hyperchain_get_plan(site, type, targets, &count);
+    plan = indirect_hyperchain_get_plan(site, targets, &count);
     if (plan == INDIRECT_HYPER_DISABLED) {
         return false;
     }
-    if (plan != INDIRECT_HYPER_LINKED &&
-        plan != INDIRECT_HYPER_LINKED_FEEDBACK) {
+    if (plan == INDIRECT_HYPER_OBSERVE) {
         return true;
     }
 
     /* Keep one dynamic Hyperchain descriptor per TB. */
     if (s->base.tb->hyperchain_site_pc) {
-        return true;
+        return false;
     }
 
     s->base.tb->hyperchain_site_pc = site;
-    s->base.tb->hyperchain_type = type;
     s->base.tb->hyperchain_target_count = count;
     memcpy(s->base.tb->hyperchain_target_pc, targets, sizeof(targets));
 #if defined(CONFIG_RFICH_DEBUG)
@@ -251,26 +250,18 @@ static bool gen_hyperchain(DisasContext *s, TCGv dest, uint32_t type)
             site, count, targets[0], targets[1], targets[2], targets[3]);
 #endif
 #if defined(CONFIG_RFICH_LOG)
-    gen_helper_rfich_linked_attempt(tcg_const_tl(site),
-                                    tcg_const_i32(type));
+    gen_helper_rfich_linked_attempt(tcg_const_tl(site));
 #endif
-
-    if (plan == INDIRECT_HYPER_LINKED_FEEDBACK && count > 1) {
-        /* Probe only a bounded startup/relearn interval.  The head remains a
-         * helper-free direct jump; a head miss records competing traffic
-         * before trying the tail slots.  Policy later retranslates this as one
-         * full helper-free chain. */
-        tcg_gen_hyperchain(dest, 0, 1, targets[0], 0, 0, 0);
-        gen_helper_hyperchain_feedback(cpu_env, tcg_const_tl(site), dest,
-                                       tcg_const_i32(type));
-        tcg_gen_hyperchain(dest, 1, count - 1, targets[1], targets[2],
-                           targets[3], 0);
-        return false;
-    }
 
     tcg_gen_hyperchain(dest, 0, count, targets[0], targets[1],
                        targets[2], targets[3]);
-    return true;
+#if defined(CONFIG_RFICH_LOG)
+    /* A patched hit leaves the TB through the slot.  Reaching this helper
+     * therefore records only compare misses, without adding anything to the
+     * production fast path. */
+    gen_helper_rfich_linked_miss(tcg_const_tl(site));
+#endif
+    return false;
 }
 #endif
 
@@ -6289,10 +6280,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_const_i32(INDIRECT_PROFILE_CALL));
 #endif
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
-            if (gen_hyperchain(s, s->T0, INDIRECT_HYPER_CALL)) {
+            if (gen_hyperchain(s, s->T0)) {
                 gen_helper_hyperchain_observe(
-                    cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0,
-                    tcg_const_i32(INDIRECT_HYPER_CALL));
+                    cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0);
             }
 #endif
             gen_jr(s, s->T0);
@@ -6331,10 +6321,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_const_i32(INDIRECT_PROFILE_JMP));
 #endif
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
-            if (gen_hyperchain(s, s->T0, INDIRECT_HYPER_JMP)) {
+            if (gen_hyperchain(s, s->T0)) {
                 gen_helper_hyperchain_observe(
-                    cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0,
-                    tcg_const_i32(INDIRECT_HYPER_JMP));
+                    cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0);
             }
 #endif
             gen_jr(s, s->T0);

@@ -31,11 +31,11 @@ DEF_HELPER_3(profile_indirect, void, tl, tl, i32)
 #endif
 
 #if defined(CONFIG_RFICH)
-DEF_HELPER_4(hyperchain_observe, void, env, tl, tl, i32)
-DEF_HELPER_4(hyperchain_feedback, void, env, tl, tl, i32)
+DEF_HELPER_3(hyperchain_observe, void, env, tl, tl)
 #endif
 #if defined(CONFIG_RFICH_LOG)
-DEF_HELPER_2(rfich_linked_attempt, void, tl, i32)
+DEF_HELPER_1(rfich_linked_attempt, void, tl)
+DEF_HELPER_1(rfich_linked_miss, void, tl)
 #endif
 #if defined(CONFIG_PBRP_DEBUG) || defined(CONFIG_PBRP_LOG)
 DEF_HELPER_2(pbrp_ret_observe, void, env, tl)

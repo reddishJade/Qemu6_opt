@@ -527,13 +527,9 @@ static void pre_translate(TranslationBlock *tb, CPUState *cpu,
 #endif
 
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
-#ifndef HYPERCHAIN_PREPARE_MAX_DEPTH
-#define HYPERCHAIN_PREPARE_MAX_DEPTH 16
-#endif
-
-static void prepare_hyperchain_depth(TranslationBlock *tb, CPUState *cpu,
-                                     target_ulong cs_base, uint32_t flags,
-                                     uint32_t cflags, unsigned depth)
+static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
+                               target_ulong cs_base, uint32_t flags,
+                               uint32_t cflags)
 {
     if (!tb->hyperchain_site_pc || !tb->hyperchain_target_count ||
         qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {
@@ -555,9 +551,9 @@ static void prepare_hyperchain_depth(TranslationBlock *tb, CPUState *cpu,
         fprintf(stderr,
                 "RFICH-DEBUG prepare site=0x" TARGET_FMT_lx
                 " index=%u target=0x" TARGET_FMT_lx
-                " offset=%" PRIxPTR " depth=%u\n",
+                " offset=%" PRIxPTR "\n",
                 tb->hyperchain_site_pc, i, target_pc,
-                tb->hyperchain_patch_offset[i], depth);
+                tb->hyperchain_patch_offset[i]);
 #endif
         if (!target_pc || !tb->hyperchain_patch_offset[i] ||
             qatomic_read(&tb->hyperchain_jmp_dest[i])) {
@@ -581,13 +577,6 @@ static void prepare_hyperchain_depth(TranslationBlock *tb, CPUState *cpu,
                     pre_translate(target, cpu, cs_base, flags, cflags);
                 }
 #endif
-                if (target && target != tb &&
-                    depth < HYPERCHAIN_PREPARE_MAX_DEPTH) {
-                    /* Prepare nested learned slots only after the target's
-                     * PBRP post-generation work is complete. */
-                    prepare_hyperchain_depth(target, cpu, cs_base, flags,
-                                             cflags, depth + 1);
-                }
             }
         }
         if (target) {
@@ -596,13 +585,6 @@ static void prepare_hyperchain_depth(TranslationBlock *tb, CPUState *cpu,
             patch_hyperchain(tb, target, i);
         }
     }
-}
-
-static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
-                               target_ulong cs_base, uint32_t flags,
-                               uint32_t cflags)
-{
-    prepare_hyperchain_depth(tb, cpu, cs_base, flags, cflags, 0);
 }
 #endif
 
@@ -650,12 +632,6 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
 #endif
         /* We add the TB in the virtual pc hash table for the fast lookup */
         qatomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)], tb);
-#if defined(CONFIG_RFICH) && defined(__sw_64__)
-    } else if (tb->hyperchain_site_pc && tb->hyperchain_target_count) {
-        mmap_lock();
-        prepare_hyperchain(tb, cpu, cs_base, flags, cflags);
-        mmap_unlock();
-#endif
     }
 #ifndef CONFIG_USER_ONLY
     /* We don't take care of direct jumps when address mapping changes in

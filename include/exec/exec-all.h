@@ -515,7 +515,6 @@ struct TranslationBlock {
 #endif
     /* Runtime-learned non-return indirect targets and their host patch slots. */
     target_ulong hyperchain_site_pc;
-    uint32_t hyperchain_type;
     uint32_t hyperchain_target_count;
     target_ulong hyperchain_target_pc[INDIRECT_HYPER_MAX_TARGETS];
     uintptr_t hyperchain_patch_offset[INDIRECT_HYPER_MAX_TARGETS];

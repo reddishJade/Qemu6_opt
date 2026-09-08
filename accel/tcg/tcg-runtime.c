@@ -214,21 +214,21 @@ void HELPER(profile_indirect)(target_ulong site_pc, target_ulong target,
 #endif
 #if defined(CONFIG_RFICH)
 void HELPER(hyperchain_observe)(CPUArchState *env, target_ulong site_pc,
-                                target_ulong target, uint32_t type)
+                                target_ulong target)
 {
-    indirect_hyperchain_record(env_cpu(env), site_pc, target, type);
+    indirect_hyperchain_record(env_cpu(env), site_pc, target);
 }
 
-void HELPER(hyperchain_feedback)(CPUArchState *env, target_ulong site_pc,
-                                 target_ulong target, uint32_t type)
-{
-    indirect_hyperchain_feedback(env_cpu(env), site_pc, target, type);
-}
 #endif
 #if defined(CONFIG_RFICH_LOG)
-void HELPER(rfich_linked_attempt)(target_ulong site_pc, uint32_t type)
+void HELPER(rfich_linked_attempt)(target_ulong site_pc)
 {
-    rfich_log_linked_attempt(site_pc, type);
+    rfich_log_linked_attempt(site_pc);
+}
+
+void HELPER(rfich_linked_miss)(target_ulong site_pc)
+{
+    rfich_log_linked_miss(site_pc);
 }
 #endif
 #if defined(CONFIG_PBRP_DEBUG) || defined(CONFIG_PBRP_LOG)

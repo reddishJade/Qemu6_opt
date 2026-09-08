@@ -2016,7 +2016,6 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 #endif
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
     tb->hyperchain_site_pc = 0;
-    tb->hyperchain_type = 0;
     tb->hyperchain_target_count = 0;
     memset(tb->hyperchain_target_pc, 0, sizeof(tb->hyperchain_target_pc));
     memset(tb->hyperchain_patch_offset, 0,
