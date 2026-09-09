@@ -69,6 +69,7 @@ static uint64_t rfich_plan_observe;
 static uint64_t rfich_plan_linked;
 static uint64_t rfich_plan_disabled;
 static uint64_t rfich_observe_calls;
+static uint64_t rfich_cached_observe_calls;
 static uint64_t rfich_retranslations;
 static uint64_t rfich_linked_attempts;
 static uint64_t rfich_linked_misses;
@@ -157,6 +158,7 @@ static void rfich_atfork_child(void)
     rfich_plan_linked = 0;
     rfich_plan_disabled = 0;
     rfich_observe_calls = 0;
+    rfich_cached_observe_calls = 0;
     rfich_retranslations = 0;
     rfich_linked_attempts = 0;
     rfich_linked_misses = 0;
@@ -265,12 +267,14 @@ static void rfich_publish_plan(RFICHSite *site)
 
 IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
                                                target_ulong targets[],
-                                               unsigned *count)
+                                               unsigned *count,
+                                               uintptr_t *observe_site)
 {
     RFICHSite *site;
     int state;
 
     *count = 0;
+    *observe_site = 0;
     site = rfich_find(site_pc);
 #if defined(CONFIG_RFICH_LOG)
     qatomic_inc(&rfich_plan_lookups);
@@ -287,6 +291,7 @@ IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
 #if defined(CONFIG_RFICH_LOG)
         qatomic_inc(&rfich_plan_observe);
 #endif
+        *observe_site = (uintptr_t)site;
         return INDIRECT_HYPER_OBSERVE;
     }
     if (state == RFICH_SITE_DISABLED) {
@@ -312,16 +317,12 @@ static void rfich_retranslate(CPUState *cpu, uint64_t site_pc)
     cpu_loop_exit_noexc(cpu);
 }
 
-void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
-                                target_ulong target)
+static bool rfich_record_site_locked(RFICHSite *site, target_ulong target,
+                                     bool cached)
 {
-    RFICHSite *site;
     bool retranslate = false;
     int state;
 
-    rfich_init();
-    qemu_mutex_lock(&rfich_lock);
-    site = rfich_find_or_create(site_pc);
     state = qatomic_read(&site->state);
 
     if (state != RFICH_SITE_OBSERVE) {
@@ -330,6 +331,9 @@ void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
     } else {
 #if defined(CONFIG_RFICH_LOG)
         qatomic_inc(&rfich_observe_calls);
+        if (cached) {
+            qatomic_inc(&rfich_cached_observe_calls);
+        }
 #endif
         if (!rfich_add_candidate(site, target)) {
             qatomic_store_release(&site->state, RFICH_SITE_DISABLED);
@@ -352,10 +356,43 @@ void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
     fprintf(stderr,
             "RFICH-DEBUG observe site=0x%" PRIx64
             " state=%d samples=%u candidates=%u targets=%u coverage=%" PRIu64
-            " retranslate=%d\n", site_pc, qatomic_read(&site->state),
+            " retranslate=%d\n", site->site_pc,
+            qatomic_read(&site->state),
             site->sample_count, site->candidate_count, site->target_count,
             site->coverage, retranslate);
 #endif
+    return retranslate;
+}
+
+void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
+                                target_ulong target)
+{
+    RFICHSite *site;
+    bool retranslate;
+
+    rfich_init();
+    qemu_mutex_lock(&rfich_lock);
+    site = rfich_find_or_create(site_pc);
+    retranslate = rfich_record_site_locked(site, target, false);
+    qemu_mutex_unlock(&rfich_lock);
+
+    if (retranslate) {
+        rfich_retranslate(cpu, site_pc);
+    }
+}
+
+void indirect_hyperchain_record_cached(CPUState *cpu, void *site_cookie,
+                                       target_ulong target)
+{
+    RFICHSite *site = site_cookie;
+    bool retranslate;
+    uint64_t site_pc;
+
+    g_assert(site != NULL);
+    site_pc = site->site_pc;
+    rfich_init();
+    qemu_mutex_lock(&rfich_lock);
+    retranslate = rfich_record_site_locked(site, target, true);
     qemu_mutex_unlock(&rfich_lock);
 
     if (retranslate) {
@@ -470,6 +507,9 @@ void rfich_log_dump(void)
                 qatomic_read(&rfich_linked_attempts) -
                 qatomic_read(&rfich_linked_misses) : 0,
             qatomic_read(&rfich_candidate_overflows));
+
+    fprintf(stderr, "RFICH observe_cached=%" PRIu64 "\n",
+            qatomic_read(&rfich_cached_observe_calls));
 
     fprintf(stderr,
             "RFICH lifecycle tb_inits=%" PRIu64

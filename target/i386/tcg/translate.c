@@ -212,6 +212,9 @@ typedef struct DisasContext {
 #endif
 
     sigjmp_buf jmpbuf;
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
+    uintptr_t rfich_observe_site;
+#endif
 } DisasContext;
 
 static void gen_eob(DisasContext *s);
@@ -226,7 +229,9 @@ static bool gen_hyperchain(DisasContext *s, TCGv dest)
     IndirectHyperPlan plan;
     unsigned count;
 
-    plan = indirect_hyperchain_get_plan(site, targets, &count);
+    s->rfich_observe_site = 0;
+    plan = indirect_hyperchain_get_plan(site, targets, &count,
+                                        &s->rfich_observe_site);
     if (plan == INDIRECT_HYPER_DISABLED) {
         return false;
     }
@@ -6292,8 +6297,15 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
 #endif
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
             if (gen_hyperchain(s, s->T0)) {
-                gen_helper_hyperchain_observe(
-                    cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0);
+                if (s->rfich_observe_site) {
+                    gen_helper_hyperchain_observe_cached(
+                        cpu_env, tcg_const_ptr((void *)s->rfich_observe_site),
+                        s->T0);
+                } else {
+                    gen_helper_hyperchain_observe(
+                        cpu_env, tcg_const_tl(s->pc_start - s->cs_base),
+                        s->T0);
+                }
             }
 #endif
             gen_jr(s, s->T0);
@@ -6333,8 +6345,15 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
 #endif
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
             if (gen_hyperchain(s, s->T0)) {
-                gen_helper_hyperchain_observe(
-                    cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0);
+                if (s->rfich_observe_site) {
+                    gen_helper_hyperchain_observe_cached(
+                        cpu_env, tcg_const_ptr((void *)s->rfich_observe_site),
+                        s->T0);
+                } else {
+                    gen_helper_hyperchain_observe(
+                        cpu_env, tcg_const_tl(s->pc_start - s->cs_base),
+                        s->T0);
+                }
             }
 #endif
             gen_jr(s, s->T0);
