@@ -7,7 +7,7 @@
 struct CPUState;
 
 #ifndef INDIRECT_HYPER_MAX_TARGETS
-#define INDIRECT_HYPER_MAX_TARGETS 4
+#define INDIRECT_HYPER_MAX_TARGETS 3
 #endif
 
 typedef enum IndirectHyperPlan {

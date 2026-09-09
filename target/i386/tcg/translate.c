@@ -235,26 +235,34 @@ static bool gen_hyperchain(DisasContext *s, TCGv dest)
     }
 
     /* Keep one dynamic Hyperchain descriptor per TB. */
-    if (s->base.tb->hyperchain_site_pc) {
+    if (s->base.tb->hyperchain_target_count) {
         return false;
     }
 
+#if defined(CONFIG_RFICH_DEBUG)
     s->base.tb->hyperchain_site_pc = site;
+#endif
     s->base.tb->hyperchain_target_count = count;
     memcpy(s->base.tb->hyperchain_target_pc, targets, sizeof(targets));
+    /* Only source TBs need outgoing RFICH state. Ordinary TBs leave these
+     * arrays untouched, including after an oversized translation retry. */
+    memset(s->base.tb->hyperchain_patch_offset, 0,
+           sizeof(s->base.tb->hyperchain_patch_offset));
+    memset(s->base.tb->hyperchain_jmp_dest, 0,
+           sizeof(s->base.tb->hyperchain_jmp_dest));
+    /* patch_hyperchain initializes list_next before publishing each edge. */
 #if defined(CONFIG_RFICH_DEBUG)
     fprintf(stderr,
             "RFICH-DEBUG translate site=0x" TARGET_FMT_lx
             " targets=%u [0x" TARGET_FMT_lx ",0x" TARGET_FMT_lx
-            ",0x" TARGET_FMT_lx ",0x" TARGET_FMT_lx "]\n",
-            site, count, targets[0], targets[1], targets[2], targets[3]);
+            ",0x" TARGET_FMT_lx "]\n",
+            site, count, targets[0], targets[1], targets[2]);
 #endif
 #if defined(CONFIG_RFICH_LOG)
     gen_helper_rfich_linked_attempt(tcg_const_tl(site));
 #endif
 
-    tcg_gen_hyperchain(dest, 0, count, targets[0], targets[1],
-                       targets[2], targets[3]);
+    tcg_gen_hyperchain(dest, count, targets[0], targets[1], targets[2]);
 #if defined(CONFIG_RFICH_LOG)
     /* A patched hit leaves the TB through the slot.  Reaching this helper
      * therefore records only compare misses, without adding anything to the

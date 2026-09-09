@@ -37,7 +37,6 @@ struct RFICHSite {
     unsigned candidate_count;
     unsigned sample_count;
 
-    target_ulong targets[RFICH_ACTIVE_TARGETS];
     unsigned target_count;
     int state;
 
@@ -165,11 +164,10 @@ static bool rfich_add_candidate(RFICHSite *site, target_ulong target)
 
 static void rfich_publish_plan(RFICHSite *site)
 {
-    RFICHTarget ranked[RFICH_CANDIDATE_CAPACITY];
+    RFICHTarget *ranked = site->candidates;
     unsigned active;
     uint64_t covered = 0;
 
-    memcpy(ranked, site->candidates, sizeof(ranked));
     for (unsigned i = 0; i < site->candidate_count; i++) {
         unsigned best = i;
 
@@ -200,9 +198,7 @@ static void rfich_publish_plan(RFICHSite *site)
         return;
     }
 
-    for (unsigned i = 0; i < active; i++) {
-        site->targets[i] = ranked[i].pc;
-    }
+    /* The sorted candidates become the immutable plan after publication. */
     site->target_count = active;
 #if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
     site->coverage = covered * 100 / site->sample_count;
@@ -245,7 +241,9 @@ IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
     }
 
     *count = site->target_count;
-    memcpy(targets, site->targets, *count * sizeof(targets[0]));
+    for (unsigned i = 0; i < *count; i++) {
+        targets[i] = site->candidates[i].pc;
+    }
 #if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
     qatomic_inc(&rfich_plan_linked);
 #endif

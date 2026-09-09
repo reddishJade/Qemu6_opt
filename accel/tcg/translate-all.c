@@ -179,8 +179,39 @@ struct page_collection {
 #define PAGE_FOR_EACH_TB(pagedesc, tb, n)                       \
     TB_FOR_EACH_TAGGED((pagedesc)->first_tb, tb, n, page_next)
 
-#define TB_FOR_EACH_JMP(head_tb, tb, n)                                 \
-    TB_FOR_EACH_TAGGED((head_tb)->jmp_list_head, tb, n, jmp_list_next)
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
+#define TB_JMP_TAG_MASK 7
+#else
+#define TB_JMP_TAG_MASK 1
+#endif
+
+/* Ordinary and RFICH edges use the same destination lock and invalidation
+ * marker. Only their outgoing storage and native reset operation differ. */
+static inline uintptr_t *tb_jmp_next_slot(TranslationBlock *tb, unsigned n)
+{
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
+    if (n >= 2) {
+        return &tb->hyperchain_jmp_list_next[n - 2];
+    }
+#endif
+    return &tb->jmp_list_next[n];
+}
+
+static inline uintptr_t *tb_jmp_dest_slot(TranslationBlock *tb, unsigned n)
+{
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
+    if (n >= 2) {
+        return &tb->hyperchain_jmp_dest[n - 2];
+    }
+#endif
+    return &tb->jmp_dest[n];
+}
+
+#define TB_FOR_EACH_JMP(head_tb, tb, n)                                \
+    for (uintptr_t entry = (head_tb)->jmp_list_head;                   \
+         (n = entry & TB_JMP_TAG_MASK,                                \
+          tb = (TranslationBlock *)(entry & ~(uintptr_t)TB_JMP_TAG_MASK)); \
+         entry = *tb_jmp_next_slot(tb, n))
 
 /*
  * In system mode we want L1_MAP to be based on ram offsets,
@@ -1546,7 +1577,7 @@ static inline void tb_remove_from_jmp_list(TranslationBlock *orig, int n_orig)
     int n;
 
     /* mark the LSB of jmp_dest[] so that no further jumps can be inserted */
-    ptr = qatomic_or_fetch(&orig->jmp_dest[n_orig], 1);
+    ptr = qatomic_or_fetch(tb_jmp_dest_slot(orig, n_orig), 1);
     dest = (TranslationBlock *)(ptr & ~1);
     if (dest == NULL) {
         return;
@@ -1557,7 +1588,7 @@ static inline void tb_remove_from_jmp_list(TranslationBlock *orig, int n_orig)
      * While acquiring the lock, the jump might have been removed if the
      * destination TB was invalidated; check again.
      */
-    ptr_locked = qatomic_read(&orig->jmp_dest[n_orig]);
+    ptr_locked = qatomic_read(tb_jmp_dest_slot(orig, n_orig));
     if (ptr_locked != ptr) {
         qemu_spin_unlock(&dest->jmp_lock);
         /*
@@ -1575,65 +1606,31 @@ static inline void tb_remove_from_jmp_list(TranslationBlock *orig, int n_orig)
     pprev = &dest->jmp_list_head;
     TB_FOR_EACH_JMP(dest, tb, n) {
         if (tb == orig && n == n_orig) {
-            *pprev = tb->jmp_list_next[n];
+            *pprev = *tb_jmp_next_slot(tb, n);
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
+            if (n_orig >= 2) {
+                patch_hyperchain_reset(orig, n_orig - 2);
+            }
+#endif
             /* no need to set orig->jmp_dest[n]; setting the LSB was enough */
             qemu_spin_unlock(&dest->jmp_lock);
             return;
         }
-        pprev = &tb->jmp_list_next[n];
+        pprev = tb_jmp_next_slot(tb, n);
     }
     g_assert_not_reached();
 }
-
-#if defined(CONFIG_RFICH) && defined(__sw_64__)
-/* Remove one outgoing Hyperchain edge while preventing a concurrent patch
- * from re-inserting it into a source TB that is being invalidated. */
-static void tb_remove_from_hyperchain_jmp_list(TranslationBlock *orig,
-                                                unsigned orig_index)
-{
-    uintptr_t ptr, ptr_locked;
-    TranslationBlock *dest;
-    uintptr_t *pprev;
-
-    ptr = qatomic_or_fetch(&orig->hyperchain_jmp_dest[orig_index], 1);
-    dest = (TranslationBlock *)(ptr & ~(uintptr_t)1);
-    if (!dest) {
-        return;
-    }
-
-    qemu_spin_lock(&dest->jmp_lock);
-    ptr_locked = qatomic_read(&orig->hyperchain_jmp_dest[orig_index]);
-    if ((ptr_locked & ~(uintptr_t)1) != (uintptr_t)dest) {
-        qemu_spin_unlock(&dest->jmp_lock);
-        g_assert(ptr_locked == 1 &&
-                 (qatomic_read(&dest->cflags) & CF_INVALID));
-        return;
-    }
-
-    pprev = &dest->hyperchain_jmp_list_head;
-    while (*pprev) {
-        uintptr_t entry = *pprev;
-        TranslationBlock *src =
-            (TranslationBlock *)(entry & ~(uintptr_t)3);
-        unsigned index = entry & 3;
-
-        if (src == orig && index == orig_index) {
-            *pprev = src->hyperchain_jmp_list_next[index];
-            patch_hyperchain_reset(orig, orig_index);
-            orig->hyperchain_jmp_list_next[orig_index] = 0;
-            qemu_spin_unlock(&dest->jmp_lock);
-            return;
-        }
-        pprev = &src->hyperchain_jmp_list_next[index];
-    }
-    g_assert_not_reached();
-}
-#endif
 
 /* reset the jump entry 'n' of a TB so that it is not chained to
    another TB */
 static inline void tb_reset_jump(TranslationBlock *tb, int n)
 {
+#if defined(CONFIG_RFICH) && defined(__sw_64__)
+    if (n >= 2) {
+        patch_hyperchain_reset(tb, n - 2);
+        return;
+    }
+#endif
     uintptr_t addr = (uintptr_t)(tb->tc.ptr + tb->jmp_reset_offset[n]);
     tb_set_jmp_target(tb, n, addr);
 }
@@ -1648,7 +1645,7 @@ static inline void tb_jmp_unlink(TranslationBlock *dest)
 
     TB_FOR_EACH_JMP(dest, tb, n) {
         tb_reset_jump(tb, n);
-        qatomic_and(&tb->jmp_dest[n], (uintptr_t)NULL | 1);
+        qatomic_and(tb_jmp_dest_slot(tb, n), (uintptr_t)NULL | 1);
         /* No need to clear the list entry; setting the dest ptr is enough */
     }
     dest->jmp_list_head = (uintptr_t)NULL;
@@ -1669,33 +1666,6 @@ static inline void tb_jmp_unlink(TranslationBlock *dest)
             ptr = next;
         }
         dest->pbrp_jmp_list_head = 0;
-    }
-#endif
-
-#if defined(CONFIG_RFICH) && defined(__sw_64__)
-    {
-        uintptr_t ptr = dest->hyperchain_jmp_list_head;
-
-        while (ptr) {
-            TranslationBlock *src =
-                (TranslationBlock *)(ptr & ~(uintptr_t)3);
-            unsigned index = ptr & 3;
-            uintptr_t next = src->hyperchain_jmp_list_next[index];
-
-            uintptr_t src_dest =
-                qatomic_read(&src->hyperchain_jmp_dest[index]);
-
-            if ((src_dest & ~(uintptr_t)1) == (uintptr_t)dest) {
-                patch_hyperchain_reset(src, index);
-                /* Atomically clear only the destination pointer.  A source
-                 * invalidation may set the LSB while waiting for this lock;
-                 * an RMW mask preserves that concurrent marker. */
-                qatomic_and(&src->hyperchain_jmp_dest[index], (uintptr_t)1);
-                src->hyperchain_jmp_list_next[index] = 0;
-            }
-            ptr = next;
-        }
-        dest->hyperchain_jmp_list_head = 0;
     }
 #endif
 
@@ -1754,8 +1724,8 @@ static void do_tb_phys_invalidate(TranslationBlock *tb, bool rm_from_page_list)
     tb_remove_from_jmp_list(tb, 0);
     tb_remove_from_jmp_list(tb, 1);
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
-    for (unsigned i = 0; i < INDIRECT_HYPER_MAX_TARGETS; i++) {
-        tb_remove_from_hyperchain_jmp_list(tb, i);
+    for (unsigned i = 0; i < tb->hyperchain_target_count; i++) {
+        tb_remove_from_jmp_list(tb, i + 2);
     }
 #endif
 
@@ -2015,16 +1985,10 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tb->pbrp_jmp_list_head = 0;
 #endif
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
+#if defined(CONFIG_RFICH_DEBUG)
     tb->hyperchain_site_pc = 0;
+#endif
     tb->hyperchain_target_count = 0;
-    memset(tb->hyperchain_target_pc, 0, sizeof(tb->hyperchain_target_pc));
-    memset(tb->hyperchain_patch_offset, 0,
-           sizeof(tb->hyperchain_patch_offset));
-    tb->hyperchain_jmp_list_head = 0;
-    memset(tb->hyperchain_jmp_dest, 0,
-           sizeof(tb->hyperchain_jmp_dest));
-    memset(tb->hyperchain_jmp_list_next, 0,
-           sizeof(tb->hyperchain_jmp_list_next));
 #endif
 
 #ifdef CONFIG_PROFILER

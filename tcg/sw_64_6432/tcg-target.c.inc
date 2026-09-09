@@ -2144,8 +2144,8 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
         return;
     }
     tb->hyperchain_jmp_list_next[index] =
-        target_tb->hyperchain_jmp_list_head;
-    target_tb->hyperchain_jmp_list_head = (uintptr_t)tb | index;
+        target_tb->jmp_list_head;
+    target_tb->jmp_list_head = (uintptr_t)tb | (index + 2);
 
     /* Publish every address-construction instruction before atomically
      * installing the final JMP.  Reset uses the exact inverse order. */
@@ -3240,7 +3240,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
 #if defined(CONFIG_RFICH) && defined(__sw_64__)
     case INDEX_op_hyperchain:
         /*
-         * a0 is the guest target, a1 packs slot base/count, and a2..a5
+         * a0 is the guest target, a1 is the count, and a2..a4
          * are learned target PCs.  A hit leaves
          * through a patched host TB slot; fall-through is the ordinary
          * lookup path.
@@ -3250,22 +3250,18 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
 #endif
         {
             TCGArg targets[INDIRECT_HYPER_MAX_TARGETS] = {
-                a2, args[3], args[4], args[5]
+                a2, args[3], args[4]
             };
-            unsigned slot_base = a1 >> 8;
-            unsigned count = a1 & 0xff;
+            unsigned count = a1;
 
-            tcg_debug_assert(slot_base + count <=
-                             INDIRECT_HYPER_MAX_TARGETS);
+            tcg_debug_assert(count <= INDIRECT_HYPER_MAX_TARGETS);
             for (unsigned i = 0; i < count; i++) {
-                unsigned slot = slot_base + i;
-
                 tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_TMP2, targets[i]);
                 tcg_out_insn_simpleReg(s, OPC_SUBL, TCG_REG_TMP2,
                                        TCG_REG_TMP2, a0);
                 tcg_out_insn_br(s, OPC_BNE, TCG_REG_TMP2,
                                 HYPERCHAIN_SLOT_SIZE);
-                s->hyperchain_patch_offset[slot] = tcg_current_code_size(s);
+                s->hyperchain_patch_offset[i] = tcg_current_code_size(s);
                 emit_hyperchain_nop_slot(s);
             }
         }

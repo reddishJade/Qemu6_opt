@@ -531,7 +531,7 @@ static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
                                target_ulong cs_base, uint32_t flags,
                                uint32_t cflags)
 {
-    if (!tb->hyperchain_site_pc || !tb->hyperchain_target_count ||
+    if (!tb->hyperchain_target_count ||
         qemu_loglevel_mask(CPU_LOG_TB_NOCHAIN)) {
 #if defined(CONFIG_RFICH_DEBUG)
         fprintf(stderr,
