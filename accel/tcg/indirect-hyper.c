@@ -104,9 +104,9 @@ static unsigned rfich_hash(uint64_t site_pc)
 
 /* Sites are never freed.  Published bucket chains are safe to walk without
  * taking rfich_lock from translation. */
-static RFICHSite *rfich_find(uint64_t site_pc)
+static RFICHSite *rfich_find_in_bucket(uint64_t site_pc, unsigned bucket)
 {
-    RFICHSite *site = qatomic_rcu_read(&rfich_buckets[rfich_hash(site_pc)]);
+    RFICHSite *site = qatomic_rcu_read(&rfich_buckets[bucket]);
 
     while (site) {
         if (site->site_pc == site_pc) {
@@ -117,10 +117,15 @@ static RFICHSite *rfich_find(uint64_t site_pc)
     return NULL;
 }
 
+static RFICHSite *rfich_find(uint64_t site_pc)
+{
+    return rfich_find_in_bucket(site_pc, rfich_hash(site_pc));
+}
+
 static RFICHSite *rfich_find_or_create(uint64_t site_pc)
 {
     unsigned bucket = rfich_hash(site_pc);
-    RFICHSite *site = rfich_find(site_pc);
+    RFICHSite *site = rfich_find_in_bucket(site_pc, bucket);
 
     if (site) {
         return site;
