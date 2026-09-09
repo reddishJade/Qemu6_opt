@@ -2144,8 +2144,8 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
         return;
     }
     tb->hyperchain_jmp_list_next[index] =
-        target_tb->jmp_list_head;
-    target_tb->jmp_list_head = (uintptr_t)tb | (index + 2);
+        target_tb->hyperchain_jmp_list_head;
+    target_tb->hyperchain_jmp_list_head = (uintptr_t)tb | index;
 
     /* Publish every address-construction instruction before atomically
      * installing the final JMP.  Reset uses the exact inverse order. */

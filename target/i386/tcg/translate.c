@@ -262,6 +262,9 @@ static bool gen_hyperchain(DisasContext *s, TCGv dest)
     gen_helper_rfich_linked_attempt(tcg_const_tl(site));
 #endif
 
+#if defined(CONFIG_RFICH_LOG)
+    rfich_log_translation(count);
+#endif
     tcg_gen_hyperchain(dest, count, targets[0], targets[1], targets[2]);
 #if defined(CONFIG_RFICH_LOG)
     /* A patched hit leaves the TB through the slot.  Reaching this helper

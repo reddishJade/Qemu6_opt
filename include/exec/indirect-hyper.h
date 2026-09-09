@@ -42,6 +42,21 @@ static inline void indirect_hyperchain_record(struct CPUState *cpu,
     (void)target;
 }
 #endif
+#if defined(CONFIG_RFICH_LOG)
+void rfich_log_tb_init(void);
+void rfich_log_translation(unsigned target_count);
+void rfich_log_tb_invalidate(unsigned target_count);
+#else
+static inline void rfich_log_tb_init(void) {}
+static inline void rfich_log_translation(unsigned target_count)
+{
+    (void)target_count;
+}
+static inline void rfich_log_tb_invalidate(unsigned target_count)
+{
+    (void)target_count;
+}
+#endif
 
 #if defined(CONFIG_RFICH_LOG)
 void rfich_log_linked_attempt(uint64_t site_pc);
@@ -50,7 +65,6 @@ void rfich_log_patch_attempt(void);
 void rfich_log_patch_success(void);
 void rfich_log_patch_skip(void);
 void rfich_log_patch_reset(void);
-void rfich_log_dump(void);
 #else
 static inline void rfich_log_linked_attempt(uint64_t site_pc)
 {
@@ -64,6 +78,11 @@ static inline void rfich_log_patch_attempt(void) {}
 static inline void rfich_log_patch_success(void) {}
 static inline void rfich_log_patch_skip(void) {}
 static inline void rfich_log_patch_reset(void) {}
+#endif
+
+#if defined(CONFIG_RFICH_LOG)
+void rfich_log_dump(void);
+#else
 static inline void rfich_log_dump(void) {}
 #endif
 

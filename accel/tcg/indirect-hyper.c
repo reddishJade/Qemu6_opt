@@ -40,12 +40,14 @@ struct RFICHSite {
     unsigned target_count;
     int state;
 
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_LOG)
     uint64_t observations;
     uint64_t retranslations;
     uint64_t linked_attempts;
     uint64_t linked_misses;
     uint64_t candidate_overflows;
+#endif
+#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
     uint64_t coverage;
 #endif
 };
@@ -54,7 +56,7 @@ static RFICHSite *rfich_buckets[RFICH_BUCKETS];
 static QemuMutex rfich_lock;
 static gsize rfich_initialized;
 
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_LOG)
 static uint64_t rfich_plan_lookups;
 static uint64_t rfich_plan_observe;
 static uint64_t rfich_plan_linked;
@@ -70,6 +72,11 @@ static uint64_t rfich_patch_attempts;
 static uint64_t rfich_patch_successes;
 static uint64_t rfich_patch_skips;
 static uint64_t rfich_patch_resets;
+static uint64_t rfich_tb_inits;
+static uint64_t rfich_linked_translations;
+static uint64_t rfich_translation_targets;
+static uint64_t rfich_tb_invalidations;
+static uint64_t rfich_invalidated_targets;
 #endif
 
 static unsigned rfich_hash(uint64_t site_pc)
@@ -216,11 +223,11 @@ IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
 
     *count = 0;
     site = rfich_find(site_pc);
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_LOG)
     qatomic_inc(&rfich_plan_lookups);
 #endif
     if (!site) {
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_LOG)
         qatomic_inc(&rfich_plan_observe);
 #endif
         return INDIRECT_HYPER_OBSERVE;
@@ -228,13 +235,13 @@ IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
 
     state = qatomic_load_acquire(&site->state);
     if (state == RFICH_SITE_OBSERVE) {
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_LOG)
         qatomic_inc(&rfich_plan_observe);
 #endif
         return INDIRECT_HYPER_OBSERVE;
     }
     if (state == RFICH_SITE_DISABLED) {
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_LOG)
         qatomic_inc(&rfich_plan_disabled);
 #endif
         return INDIRECT_HYPER_DISABLED;
@@ -244,7 +251,7 @@ IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
     for (unsigned i = 0; i < *count; i++) {
         targets[i] = site->candidates[i].pc;
     }
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_LOG)
     qatomic_inc(&rfich_plan_linked);
 #endif
     return INDIRECT_HYPER_LINKED;
@@ -272,13 +279,13 @@ void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
         /* Retire an observe TB that was translated before the plan froze. */
         retranslate = true;
     } else {
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_LOG)
         site->observations++;
         qatomic_inc(&rfich_observe_calls);
 #endif
         if (!rfich_add_candidate(site, target)) {
             qatomic_store_release(&site->state, RFICH_SITE_DISABLED);
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_LOG)
             site->candidate_overflows++;
 #endif
             retranslate = true;
@@ -288,7 +295,7 @@ void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
         }
     }
 
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_LOG)
     if (retranslate) {
         site->retranslations++;
         qatomic_inc(&rfich_retranslations);
@@ -308,6 +315,25 @@ void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
         rfich_retranslate(cpu, site_pc);
     }
 }
+
+#if defined(CONFIG_RFICH_LOG)
+void rfich_log_tb_init(void)
+{
+    qatomic_inc(&rfich_tb_inits);
+}
+
+void rfich_log_translation(unsigned target_count)
+{
+    qatomic_inc(&rfich_linked_translations);
+    qatomic_add(&rfich_translation_targets, target_count);
+}
+
+void rfich_log_tb_invalidate(unsigned target_count)
+{
+    qatomic_inc(&rfich_tb_invalidations);
+    qatomic_add(&rfich_invalidated_targets, target_count);
+}
+#endif
 
 #if defined(CONFIG_RFICH_LOG)
 void rfich_log_linked_attempt(uint64_t site_pc)
@@ -342,7 +368,9 @@ void rfich_log_patch_attempt(void) { qatomic_inc(&rfich_patch_attempts); }
 void rfich_log_patch_success(void) { qatomic_inc(&rfich_patch_successes); }
 void rfich_log_patch_skip(void) { qatomic_inc(&rfich_patch_skips); }
 void rfich_log_patch_reset(void) { qatomic_inc(&rfich_patch_resets); }
+#endif
 
+#if defined(CONFIG_RFICH_LOG)
 void rfich_log_dump(void)
 {
     uint64_t sites = 0;
@@ -389,9 +417,7 @@ void rfich_log_dump(void)
             " plan_linked=%" PRIu64 " plan_disabled=%" PRIu64
             " observe_calls=%" PRIu64 " retranslations=%" PRIu64
             " linked_attempts=%" PRIu64 " linked_misses=%" PRIu64
-            " linked_hits=%" PRIu64 " overflows=%" PRIu64 "\n"
-            "RFICH patch attempts=%" PRIu64 " successes=%" PRIu64
-            " skips=%" PRIu64 " resets=%" PRIu64 "\n",
+            " linked_hits=%" PRIu64 " overflows=%" PRIu64 "\n",
             sites, observing, linked, disabled,
             qatomic_read(&rfich_plan_lookups),
             qatomic_read(&rfich_plan_observe), qatomic_read(&rfich_plan_linked),
@@ -404,10 +430,27 @@ void rfich_log_dump(void)
                 qatomic_read(&rfich_linked_misses) ?
                 qatomic_read(&rfich_linked_attempts) -
                 qatomic_read(&rfich_linked_misses) : 0,
-            overflows,
+            overflows);
+
+    fprintf(stderr,
+            "RFICH lifecycle tb_inits=%" PRIu64
+            " linked_translations=%" PRIu64
+            " translation_targets=%" PRIu64
+            " tb_invalidations=%" PRIu64
+            " invalidated_targets=%" PRIu64 "\n",
+            qatomic_read(&rfich_tb_inits),
+            qatomic_read(&rfich_linked_translations),
+            qatomic_read(&rfich_translation_targets),
+            qatomic_read(&rfich_tb_invalidations),
+            qatomic_read(&rfich_invalidated_targets));
+#if defined(CONFIG_RFICH_LOG)
+    fprintf(stderr,
+            "RFICH patch attempts=%" PRIu64 " successes=%" PRIu64
+            " skips=%" PRIu64 " resets=%" PRIu64 "\n",
             qatomic_read(&rfich_patch_attempts),
             qatomic_read(&rfich_patch_successes),
             qatomic_read(&rfich_patch_skips), qatomic_read(&rfich_patch_resets));
+#endif
     fflush(stderr);
 }
 #endif

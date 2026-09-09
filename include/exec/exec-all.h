@@ -520,19 +520,19 @@ struct TranslationBlock {
     uint32_t hyperchain_target_count;
     target_ulong hyperchain_target_pc[INDIRECT_HYPER_MAX_TARGETS];
     uintptr_t hyperchain_patch_offset[INDIRECT_HYPER_MAX_TARGETS];
-    /* Incoming edges share jmp_list_head; tags 2..4 identify RFICH slots. */
+    /* Hyperchain slots are tagged by their two-bit index in the target TB's
+     * incoming edge list. */
+    uintptr_t hyperchain_jmp_list_head;
     uintptr_t hyperchain_jmp_dest[INDIRECT_HYPER_MAX_TARGETS];
     uintptr_t hyperchain_jmp_list_next[INDIRECT_HYPER_MAX_TARGETS];
 #endif
 
     /*
      * Each TB has a NULL-terminated list (jmp_list_head) of incoming jumps.
-     * Each TB can have two ordinary outgoing jumps, and therefore participate
+     * Each TB can have two outgoing jumps, and therefore can participate
      * in two lists. The list entries are kept in jmp_list_next[2]. The least
      * significant bit (LSB) of the pointers in these lists is used to encode
-     * which of the two list entries is to be used in the pointed TB. With
-     * SW64 RFICH enabled, three low bits encode ordinary slots 0..1 and
-     * RFICH slots 2..4. TB allocation is cache-line aligned.
+     * which of the two list entries is to be used in the pointed TB.
      *
      * List traversals are protected by jmp_lock. The destination TB of each
      * outgoing jump is kept in jmp_dest[] so that the appropriate jmp_lock
