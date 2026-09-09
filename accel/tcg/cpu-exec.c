@@ -534,6 +534,7 @@ static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
                                target_ulong cs_base, uint32_t flags,
                                uint32_t cflags)
 {
+    rfich_log_prepare_call();
     for (unsigned i = 0; i < tb->hyperchain_target_count; i++) {
         TranslationBlock *target;
         target_ulong target_pc = tb->hyperchain_target_pc[i];
@@ -548,27 +549,32 @@ static void prepare_hyperchain(TranslationBlock *tb, CPUState *cpu,
 #endif
         if (!target_pc || !tb->hyperchain_patch_offset[i] ||
             qatomic_read(&tb->hyperchain_jmp_dest[i])) {
+            rfich_log_prepare_skip();
             continue;
         }
         /* The source TB is not in the cache yet.  Reuse it for a self-loop
          * instead of recursively translating the same guest block. */
         if (target_pc == tb->pc && cs_base == tb->cs_base &&
             flags == tb->flags) {
+            rfich_log_prepare_self();
             target = tb;
         } else {
             target = tb_lookup(cpu, target_pc, cs_base, flags, cflags);
             if (!target) {
+                rfich_log_prepare_lookup_miss();
                 target = tb_gen_code(cpu, target_pc, cs_base, flags, cflags);
-#if defined(CONFIG_PRE_TRANSLATE)
-                if (target && target != tb && target->next_pc) {
-                    /* This target bypasses tb_find()'s post-generation hooks.
-                     * Prepare its PBRP next_pc chain before an RFICH edge can
-                     * enter it directly and reach an unpatched early-exit
-                     * state-update slot. */
-                    pre_translate(target, cpu, cs_base, flags, cflags);
-                }
-#endif
+            } else {
+                rfich_log_prepare_lookup_hit();
             }
+#if defined(CONFIG_PRE_TRANSLATE)
+            if (target && target != tb && target->next_pc) {
+                /* This target bypasses tb_find()'s post-generation hooks.
+                 * Prepare its PBRP next_pc chain before an RFICH edge can
+                 * enter it directly and reach an unpatched early-exit
+                 * state-update slot. */
+                pre_translate(target, cpu, cs_base, flags, cflags);
+            }
+#endif
         }
         if (target) {
             qatomic_set(&cpu->tb_jmp_cache[

@@ -46,6 +46,11 @@ static inline void indirect_hyperchain_record(struct CPUState *cpu,
 void rfich_log_tb_init(void);
 void rfich_log_translation(unsigned target_count);
 void rfich_log_tb_invalidate(unsigned target_count);
+void rfich_log_prepare_call(void);
+void rfich_log_prepare_self(void);
+void rfich_log_prepare_lookup_hit(void);
+void rfich_log_prepare_lookup_miss(void);
+void rfich_log_prepare_skip(void);
 #else
 static inline void rfich_log_tb_init(void) {}
 static inline void rfich_log_translation(unsigned target_count)
@@ -56,6 +61,11 @@ static inline void rfich_log_tb_invalidate(unsigned target_count)
 {
     (void)target_count;
 }
+static inline void rfich_log_prepare_call(void) {}
+static inline void rfich_log_prepare_self(void) {}
+static inline void rfich_log_prepare_lookup_hit(void) {}
+static inline void rfich_log_prepare_lookup_miss(void) {}
+static inline void rfich_log_prepare_skip(void) {}
 #endif
 
 #if defined(CONFIG_RFICH_LOG)

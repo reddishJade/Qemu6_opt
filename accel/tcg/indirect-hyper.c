@@ -11,11 +11,25 @@
 #include "exec/indirect-hyper.h"
 #include "qemu/thread.h"
 
+#ifndef RFICH_BUCKETS
 #define RFICH_BUCKETS 4096
+#endif
+#ifndef RFICH_LEARN_SAMPLES
 #define RFICH_LEARN_SAMPLES 32
+#endif
+#ifndef RFICH_CANDIDATE_CAPACITY
 #define RFICH_CANDIDATE_CAPACITY 4
-#define RFICH_ACTIVE_TARGETS 3
+#endif
+#ifndef RFICH_ACTIVE_TARGETS
+#define RFICH_ACTIVE_TARGETS INDIRECT_HYPER_MAX_TARGETS
+#endif
+#ifndef RFICH_MIN_COVERAGE
 #define RFICH_MIN_COVERAGE 90
+#endif
+
+#if RFICH_ACTIVE_TARGETS > INDIRECT_HYPER_MAX_TARGETS
+#error "RFICH_ACTIVE_TARGETS exceeds INDIRECT_HYPER_MAX_TARGETS"
+#endif
 
 enum {
     RFICH_SITE_OBSERVE,
@@ -71,6 +85,13 @@ static uint64_t rfich_linked_translations;
 static uint64_t rfich_translation_targets;
 static uint64_t rfich_tb_invalidations;
 static uint64_t rfich_invalidated_targets;
+static uint64_t rfich_published_targets[INDIRECT_HYPER_MAX_TARGETS + 1];
+static uint64_t rfich_published_disabled;
+static uint64_t rfich_prepare_calls;
+static uint64_t rfich_prepare_self;
+static uint64_t rfich_prepare_lookup_hits;
+static uint64_t rfich_prepare_lookup_misses;
+static uint64_t rfich_prepare_skips;
 #endif
 
 static unsigned rfich_hash(uint64_t site_pc)
@@ -144,6 +165,15 @@ static void rfich_atfork_child(void)
     rfich_translation_targets = 0;
     rfich_tb_invalidations = 0;
     rfich_invalidated_targets = 0;
+    rfich_published_disabled = 0;
+    for (unsigned i = 0; i <= INDIRECT_HYPER_MAX_TARGETS; i++) {
+        rfich_published_targets[i] = 0;
+    }
+    rfich_prepare_calls = 0;
+    rfich_prepare_self = 0;
+    rfich_prepare_lookup_hits = 0;
+    rfich_prepare_lookup_misses = 0;
+    rfich_prepare_skips = 0;
 #endif
     qemu_mutex_unlock(&rfich_lock);
 }
@@ -205,6 +235,9 @@ static void rfich_publish_plan(RFICHSite *site)
 
     if (!active || covered * 100 <
                        (uint64_t)site->sample_count * RFICH_MIN_COVERAGE) {
+#if defined(CONFIG_RFICH_LOG)
+        qatomic_inc(&rfich_published_disabled);
+#endif
         qatomic_store_release(&site->state, RFICH_SITE_DISABLED);
 #if defined(CONFIG_RFICH_DEBUG)
         site->coverage = site->sample_count ?
@@ -215,6 +248,9 @@ static void rfich_publish_plan(RFICHSite *site)
 
     /* The sorted candidates become the immutable plan after publication. */
     site->target_count = active;
+#if defined(CONFIG_RFICH_LOG)
+    qatomic_inc(&rfich_published_targets[active]);
+#endif
 #if defined(CONFIG_RFICH_DEBUG)
     site->coverage = covered * 100 / site->sample_count;
 #endif
@@ -339,6 +375,31 @@ void rfich_log_tb_invalidate(unsigned target_count)
     qatomic_inc(&rfich_tb_invalidations);
     qatomic_add(&rfich_invalidated_targets, target_count);
 }
+
+void rfich_log_prepare_call(void)
+{
+    qatomic_inc(&rfich_prepare_calls);
+}
+
+void rfich_log_prepare_self(void)
+{
+    qatomic_inc(&rfich_prepare_self);
+}
+
+void rfich_log_prepare_lookup_hit(void)
+{
+    qatomic_inc(&rfich_prepare_lookup_hits);
+}
+
+void rfich_log_prepare_lookup_miss(void)
+{
+    qatomic_inc(&rfich_prepare_lookup_misses);
+}
+
+void rfich_log_prepare_skip(void)
+{
+    qatomic_inc(&rfich_prepare_skips);
+}
 #endif
 
 #if defined(CONFIG_RFICH_LOG)
@@ -423,6 +484,21 @@ void rfich_log_dump(void)
             qatomic_read(&rfich_patch_attempts),
             qatomic_read(&rfich_patch_successes),
             qatomic_read(&rfich_patch_skips), qatomic_read(&rfich_patch_resets));
+
+    fprintf(stderr, "RFICH plans disabled=%" PRIu64 " targets=",
+            qatomic_read(&rfich_published_disabled));
+    for (unsigned i = 0; i <= INDIRECT_HYPER_MAX_TARGETS; i++) {
+        fprintf(stderr, "%s%u:%" PRIu64, i ? "," : "", i,
+                qatomic_read(&rfich_published_targets[i]));
+    }
+    fprintf(stderr, "\nRFICH prepare calls=%" PRIu64
+            " self=%" PRIu64 " lookup_hits=%" PRIu64
+            " lookup_misses=%" PRIu64 " skips=%" PRIu64 "\n",
+            qatomic_read(&rfich_prepare_calls),
+            qatomic_read(&rfich_prepare_self),
+            qatomic_read(&rfich_prepare_lookup_hits),
+            qatomic_read(&rfich_prepare_lookup_misses),
+            qatomic_read(&rfich_prepare_skips));
 #endif
     fflush(stderr);
 }
