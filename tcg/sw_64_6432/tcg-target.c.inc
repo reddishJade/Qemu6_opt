@@ -1974,16 +1974,96 @@ void tb_target_set_jmp_target(uintptr_t tc_ptr, uintptr_t jmp_rx, uintptr_t jmp_
 
 #if defined(CONFIG_FAST_RET) && defined(__sw_64__)
 /*
- * Number of NOP instructions reserved for a PBRP patch slot.
- * Must match: 2 groups (gpc + hpc) x 6 insns each = 12.
+ * PBRP uses a fixed 12-word slot:
+ *
+ *   gate, gpc construction/store, PC-relative hpc load/store, skip, literal
+ *
+ * The gate is a BR over the complete slot while the slot is unpublished.  A
+ * published slot replaces that one instruction with NOP.  The literal is
+ * aligned and is the only value changed when a target is (re)linked.
  */
 #define PBRP_NOP_SLOT_SIZE 12
+#define PBRP_HPC_LITERAL_INDEX 10
+#define PBRP_HPC_LITERAL_OFFSET \
+    (PBRP_HPC_LITERAL_INDEX * sizeof(tcg_insn_unit))
+#define PBRP_HPC_LOAD_OFFSET \
+    (PBRP_HPC_LITERAL_OFFSET - 7 * sizeof(tcg_insn_unit))
+
+typedef struct {
+    tcg_target_long l0;  /* low 16 bits */
+    tcg_target_long l1;  /* middle 16 bits */
+    tcg_target_long l2;  /* high 16 bits */
+} target_components_t;
+
+static inline target_components_t decompose_target_address(uintptr_t target)
+{
+    target_components_t comp;
+
+    comp.l0 = (int16_t)target;
+    target  = (target - comp.l0) >> 16;
+    comp.l1 = (int16_t)target;
+    target  = (target - comp.l1) >> 16;
+    comp.l2 = (int16_t)target;
+
+    return comp;
+}
+
+static inline tcg_insn_unit pbrp_disabled_insn(void)
+{
+    return OPC_BR | (TCG_REG_ZERO & 0x1f) << 21 |
+           ((PBRP_NOP_SLOT_SIZE - 1) & 0x1fffff);
+}
 
 static inline void emit_pbrp_nop_slot(TCGContext *s)
 {
-    for (int i = 0; i < PBRP_NOP_SLOT_SIZE; i++) {
+    target_components_t comp;
+    uintptr_t slot_start;
+    TCGReg rd = TCG_REG_TMP;
+
+    /*
+     * The runtime hpc publication is a naturally aligned 64-bit store.  Keep
+     * the literal aligned even for goto_ptr, which does not otherwise need
+     * the direct-jump alignment done by goto_tb.
+     */
+    if ((uintptr_t)s->code_ptr & (sizeof(uint64_t) - 1)) {
         tcg_out32(s, OPC_NOP);
     }
+    *(s->pbrp_patch_offset) = tcg_current_code_size(s);
+    slot_start = (uintptr_t)s->code_ptr;
+    comp = decompose_target_address((uintptr_t)s->tb_next_pc);
+
+    /* Unpublished gate.  The branch target is the first instruction after
+     * the 12-word slot: (48 - 4) / 4 == 11. */
+    tcg_out32(s, pbrp_disabled_insn());
+
+    /* Fixed gpc construction/store; gpc is immutable for a source TB. */
+    tcg_out_insn_ldst(s, OPC_LDI, rd, TCG_REG_ZERO, comp.l2);
+    tcg_out_insn_simpleImm(s, OPC_SLLL_I, rd, rd, 32);
+    tcg_out_insn_ldst(s, OPC_LDIH, rd, rd, comp.l1);
+    tcg_out_insn_ldst(s, OPC_LDI, rd, rd, comp.l0);
+    tcg_out_insn_ldst(s, OPC_STL, rd, TCG_AREG0,
+                      offsetof(CPUX86State, gpc));
+
+    /*
+     * BR rd,0 materializes the address of the following instruction in rd.
+     * The hpc literal is 12 bytes after the load instruction.
+     */
+    tcg_out_insn_br(s, OPC_BR, TCG_REG_TMP, 0);
+    tcg_out_insn_ldst(s, OPC_LDL, TCG_REG_TMP2, TCG_REG_TMP,
+                      PBRP_HPC_LOAD_OFFSET);
+    tcg_out_insn_ldst(s, OPC_STL, TCG_REG_TMP2, TCG_AREG0,
+                      offsetof(CPUX86State, hpc));
+    tcg_out_insn_br(s, OPC_BR, TCG_REG_ZERO,
+                    PBRP_NOP_SLOT_SIZE - PBRP_HPC_LITERAL_INDEX);
+
+    /* Runtime-patched hpc literal; keep the initial disabled value benign. */
+    tcg_out32(s, OPC_NOP);
+    tcg_out32(s, OPC_NOP);
+
+    tcg_debug_assert((uintptr_t)s->code_ptr - slot_start ==
+                     PBRP_NOP_SLOT_SIZE * sizeof(tcg_insn_unit));
+    tcg_debug_assert(!((slot_start + PBRP_HPC_LITERAL_OFFSET) &
+                       (sizeof(uint64_t) - 1)));
 }
 
 /*
@@ -1995,7 +2075,6 @@ static inline void emit_pbrp_nop_slot(TCGContext *s)
 static inline void emit_pbrp_early_exit_slot(TCGContext *s)
 {
     if (s->tb_next_pc) {
-        *(s->pbrp_patch_offset) = tcg_current_code_size(s);
         emit_pbrp_nop_slot(s);
         s->tb_next_pc = 0;
     }
@@ -2188,67 +2267,9 @@ static inline patch_addresses_t get_patch_addresses(TranslationBlock *tb)
     return (patch_addresses_t){ .jmp_rx = jmp_rx, .jmp_rw = jmp_rw };
 }
 
-/* Target-address decomposition */
-typedef struct {
-    tcg_target_long l0;  /* low 16 bits */
-    tcg_target_long l1;  /* middle 16 bits */
-    tcg_target_long l2;  /* high 16 bits */
-} target_components_t;
-
-static inline target_components_t decompose_target_address(uintptr_t target)
-{
-    target_components_t comp;
-
-    comp.l0 = (int16_t)target;
-    target  = (target - comp.l0) >> 16;
-    comp.l1 = (int16_t)target;
-    target  = (target - comp.l1) >> 16;
-    comp.l2 = (int16_t)target;
-
-    return comp;
-}
-
-/* Instruction-pair write helper */
-static inline void write_insn_pair(uintptr_t *addr, tcg_insn_unit i1, tcg_insn_unit i2)
-{
-    uint64_t pair = (uint64_t)i2 << 32 | i1;
-    qatomic_set((uint64_t *)addr, pair);
-}
-
-/* Patch-code generator: emits 6 insns (3 pairs) to construct a 48-bit
- * value and store it at env + offset. */
-static size_t generate_patch_code(uintptr_t jmp_addr, const target_components_t *comp, size_t offset)
-{
-    TCGReg rs  = TCG_REG_ZERO;
-    TCGReg rd  = TCG_REG_TMP;
-    uintptr_t jmp = jmp_addr;
-    tcg_insn_unit i1, i2;
-
-    /* First pair: reserved NOP + load high 16 bits into rd */
-    i1 = OPC_NOP;
-    i2 = OPC_LDI | (rd & 0x1f) << 21 | (rs & 0x1f) << 16 | (comp->l2 & 0xffff);
-    write_insn_pair((uintptr_t *)jmp, i1, i2);
-    jmp += 8;
-
-    /* Second pair: shift left by 32 bits + load middle 16 bits */
-    i1 = OPC_SLLL_I | (rd & 0x1f) << 21 | (32 & 0xff) << 13 | (rd & 0x1f);
-    i2 = OPC_LDIH | (rd & 0x1f) << 21 | (rd & 0x1f) << 16 | (comp->l1 & 0xffff);
-    write_insn_pair((uintptr_t *)jmp, i1, i2);
-    jmp += 8;
-
-    /* Third pair: load low 16 bits + store to env */
-    i1 = OPC_LDI | (rd & 0x1f) << 21 | (rd & 0x1f) << 16 | (comp->l0 & 0xffff);
-    i2 = OPC_STL | (rd & 0x1f) << 21 | (TCG_AREG0 & 0x1f) << 16 | (offset & 0xffff);
-    write_insn_pair((uintptr_t *)jmp, i1, i2);
-    jmp += 8;
-
-    return jmp - jmp_addr;  /* total bytes written */
-}
-
 void patch_pbrp_reset(TranslationBlock *tb)
 {
     patch_addresses_t addrs;
-    tcg_insn_unit nops[PBRP_NOP_SLOT_SIZE];
 
     if (!tb->jmp_to_next_offset) {
 #if defined(CONFIG_PBRP_DEBUG)
@@ -2259,14 +2280,16 @@ void patch_pbrp_reset(TranslationBlock *tb)
     }
 
     addrs = get_patch_addresses(tb);
-    for (int i = 0; i < PBRP_NOP_SLOT_SIZE; i++) {
-        nops[i] = OPC_NOP;
-    }
-    for (int i = 0; i < PBRP_NOP_SLOT_SIZE; i += 2) {
-        write_insn_pair((uintptr_t *)(addrs.jmp_rw + i * 4),
-                        nops[i], nops[i + 1]);
-    }
-    flush_idcache_range(addrs.jmp_rx, addrs.jmp_rw, sizeof(nops));
+
+    /*
+     * Unpublish the entry before unlinking metadata.  The fixed body and the
+     * old aligned literal are intentionally retained: a CPU already past the
+     * gate can finish an intact body, and a later relink changes only the
+     * atomic literal while the gate is closed.
+     */
+    qatomic_store_release((uint32_t *)addrs.jmp_rw, pbrp_disabled_insn());
+    flush_idcache_range(addrs.jmp_rx, addrs.jmp_rw, sizeof(uint32_t));
+    smp_mb();
 #if defined(CONFIG_PBRP_LOG)
     pbrp_log_patch_reset();
 #endif
@@ -2299,21 +2322,23 @@ void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb)
     patch_addresses_t addrs = get_patch_addresses(tb);
 
     qemu_spin_lock(&next_tb->jmp_lock);
-    if ((next_tb->cflags & CF_INVALID) || tb->pbrp_jmp_dest) {
+    if ((qatomic_read(&next_tb->cflags) & CF_INVALID) ||
+        (qatomic_read(&tb->cflags) & CF_INVALID)) {
 #if defined(CONFIG_PBRP_LOG)
         pbrp_log_patch_skip();
 #endif
 #if defined(CONFIG_PBRP_DEBUG)
         fprintf(stderr, "PBRP-DEBUG patch skip pc=0x" TARGET_FMT_lx
                 " invalid=%d already-linked=%d\n", tb->pc,
-                !!(next_tb->cflags & CF_INVALID), !!tb->pbrp_jmp_dest);
+                !!(qatomic_read(&next_tb->cflags) & CF_INVALID),
+                !!qatomic_read(&tb->pbrp_jmp_dest));
 #endif
         qemu_spin_unlock(&next_tb->jmp_lock);
         return;
     }
 
-    /* Skip if already patched (second insn is no longer NOP) */
-    if (*(uint32_t *)(addrs.jmp_rw + 4) != OPC_NOP) {
+    /* Only a disabled gate may be linked. */
+    if (qatomic_read((uint32_t *)addrs.jmp_rw) != pbrp_disabled_insn()) {
 #if defined(CONFIG_PBRP_LOG)
         pbrp_log_patch_skip();
 #endif
@@ -2325,21 +2350,46 @@ void patch_pbrp(TranslationBlock *tb, TranslationBlock *next_tb)
         return;
     }
 
-    target_ulong gpc = tb->next_pc;
     uintptr_t    hpc = (uintptr_t)next_tb->tc.ptr;
 
-    size_t gpc_offset = offsetof(CPUX86State, gpc);
-    target_components_t comp = decompose_target_address(gpc);
-    size_t code_len = generate_patch_code(addrs.jmp_rw, &comp, gpc_offset);
-    size_t hpc_offset = offsetof(CPUX86State, hpc);
-    comp = decompose_target_address(hpc);
-    code_len += generate_patch_code(addrs.jmp_rw + code_len, &comp, hpc_offset);
+    /*
+     * Claim the source edge independently of the target lock as well.  The
+     * target lock serializes unlink with this writer; the CAS also prevents
+     * two target candidates from claiming one source if they race.
+     */
+    if (qatomic_cmpxchg(&tb->pbrp_jmp_dest, 0,
+                        (uintptr_t)next_tb) != 0) {
+#if defined(CONFIG_PBRP_LOG)
+        pbrp_log_patch_skip();
+#endif
+#if defined(CONFIG_PBRP_DEBUG)
+        fprintf(stderr, "PBRP-DEBUG patch skip pc=0x" TARGET_FMT_lx
+                " already-linked=1\n", tb->pc);
+#endif
+        qemu_spin_unlock(&next_tb->jmp_lock);
+        return;
+    }
 
-    flush_idcache_range(addrs.jmp_rx, addrs.jmp_rw, code_len);
-
-    tb->pbrp_jmp_dest = (uintptr_t)next_tb;
     tb->pbrp_jmp_list_next = next_tb->pbrp_jmp_list_head;
     next_tb->pbrp_jmp_list_head = (uintptr_t)tb;
+
+    /*
+     * The hpc literal is one naturally aligned atomic word.  Flush it before
+     * publishing the single entry NOP; a CPU can therefore observe either
+     * the old complete value or the new complete value, never code assembled
+     * from mixed instruction words.
+     */
+    tcg_debug_assert(!((addrs.jmp_rw + PBRP_HPC_LITERAL_OFFSET) &
+                       (sizeof(uint64_t) - 1)));
+    qatomic_store_release(
+        (uint64_t *)(addrs.jmp_rw + PBRP_HPC_LITERAL_OFFSET),
+        (uint64_t)hpc);
+    flush_idcache_range(addrs.jmp_rx + PBRP_HPC_LITERAL_OFFSET,
+                        addrs.jmp_rw + PBRP_HPC_LITERAL_OFFSET,
+                        sizeof(uint64_t));
+    smp_mb();
+    qatomic_store_release((uint32_t *)addrs.jmp_rw, OPC_NOP);
+    flush_idcache_range(addrs.jmp_rx, addrs.jmp_rw, sizeof(uint32_t));
 #if defined(CONFIG_PBRP_LOG)
     pbrp_log_patch_success();
 #endif
@@ -3203,7 +3253,6 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
             }
 #if defined(CONFIG_FAST_RET) && defined(__sw_64__)
             if (s->tb_next_pc) {
-                *(s->pbrp_patch_offset) = tcg_current_code_size(s);
                 emit_pbrp_nop_slot(s);
             }
             s->tb_jmp_insn_offset[a0] = tcg_current_code_size(s);
@@ -3230,7 +3279,6 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
     case INDEX_op_goto_ptr:
 #if defined(CONFIG_FAST_RET) && defined(__sw_64__)
         if (s->tb_next_pc) {
-            *(s->pbrp_patch_offset) = (uintptr_t)tcg_current_code_size(s);
             emit_pbrp_nop_slot(s);
         }
 #endif
