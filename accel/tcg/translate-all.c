@@ -1661,9 +1661,9 @@ static inline void tb_jmp_unlink(TranslationBlock *dest)
             TranslationBlock *src = (TranslationBlock *)ptr;
             uintptr_t next = src->pbrp_jmp_list_next;
 
-            if (src->pbrp_jmp_dest == (uintptr_t)dest) {
+            if (qatomic_read(&src->pbrp_jmp_dest) == (uintptr_t)dest) {
                 patch_pbrp_reset(src);
-                src->pbrp_jmp_dest = 0;
+                qatomic_set(&src->pbrp_jmp_dest, 0);
                 src->pbrp_jmp_list_next = 0;
             }
             ptr = next;
