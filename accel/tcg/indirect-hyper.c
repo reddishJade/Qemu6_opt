@@ -40,14 +40,7 @@ struct RFICHSite {
     unsigned target_count;
     int state;
 
-#if defined(CONFIG_RFICH_LOG)
-    uint64_t observations;
-    uint64_t retranslations;
-    uint64_t linked_attempts;
-    uint64_t linked_misses;
-    uint64_t candidate_overflows;
-#endif
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_DEBUG)
     uint64_t coverage;
 #endif
 };
@@ -65,6 +58,7 @@ static uint64_t rfich_observe_calls;
 static uint64_t rfich_retranslations;
 static uint64_t rfich_linked_attempts;
 static uint64_t rfich_linked_misses;
+static uint64_t rfich_candidate_overflows;
 #endif
 
 #if defined(CONFIG_RFICH_LOG)
@@ -132,10 +126,24 @@ static void rfich_atfork_parent(void)
 static void rfich_atfork_child(void)
 {
 #if defined(CONFIG_RFICH_LOG)
+    rfich_plan_lookups = 0;
+    rfich_plan_observe = 0;
+    rfich_plan_linked = 0;
+    rfich_plan_disabled = 0;
+    rfich_observe_calls = 0;
+    rfich_retranslations = 0;
+    rfich_linked_attempts = 0;
+    rfich_linked_misses = 0;
+    rfich_candidate_overflows = 0;
     rfich_patch_attempts = 0;
     rfich_patch_successes = 0;
     rfich_patch_skips = 0;
     rfich_patch_resets = 0;
+    rfich_tb_inits = 0;
+    rfich_linked_translations = 0;
+    rfich_translation_targets = 0;
+    rfich_tb_invalidations = 0;
+    rfich_invalidated_targets = 0;
 #endif
     qemu_mutex_unlock(&rfich_lock);
 }
@@ -198,7 +206,7 @@ static void rfich_publish_plan(RFICHSite *site)
     if (!active || covered * 100 <
                        (uint64_t)site->sample_count * RFICH_MIN_COVERAGE) {
         qatomic_store_release(&site->state, RFICH_SITE_DISABLED);
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_DEBUG)
         site->coverage = site->sample_count ?
             covered * 100 / site->sample_count : 0;
 #endif
@@ -207,7 +215,7 @@ static void rfich_publish_plan(RFICHSite *site)
 
     /* The sorted candidates become the immutable plan after publication. */
     site->target_count = active;
-#if defined(CONFIG_RFICH_LOG) || defined(CONFIG_RFICH_DEBUG)
+#if defined(CONFIG_RFICH_DEBUG)
     site->coverage = covered * 100 / site->sample_count;
 #endif
     /* All plan fields are visible before the state becomes LINKED. */
@@ -280,13 +288,12 @@ void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
         retranslate = true;
     } else {
 #if defined(CONFIG_RFICH_LOG)
-        site->observations++;
         qatomic_inc(&rfich_observe_calls);
 #endif
         if (!rfich_add_candidate(site, target)) {
             qatomic_store_release(&site->state, RFICH_SITE_DISABLED);
 #if defined(CONFIG_RFICH_LOG)
-            site->candidate_overflows++;
+            qatomic_inc(&rfich_candidate_overflows);
 #endif
             retranslate = true;
         } else if (++site->sample_count == RFICH_LEARN_SAMPLES) {
@@ -297,7 +304,6 @@ void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
 
 #if defined(CONFIG_RFICH_LOG)
     if (retranslate) {
-        site->retranslations++;
         qatomic_inc(&rfich_retranslations);
     }
 #endif
@@ -338,30 +344,14 @@ void rfich_log_tb_invalidate(unsigned target_count)
 #if defined(CONFIG_RFICH_LOG)
 void rfich_log_linked_attempt(uint64_t site_pc)
 {
-    RFICHSite *site;
-
-    rfich_init();
-    qemu_mutex_lock(&rfich_lock);
-    site = rfich_find(site_pc);
-    if (site) {
-        site->linked_attempts++;
-    }
+    (void)site_pc;
     qatomic_inc(&rfich_linked_attempts);
-    qemu_mutex_unlock(&rfich_lock);
 }
 
 void rfich_log_linked_miss(uint64_t site_pc)
 {
-    RFICHSite *site;
-
-    rfich_init();
-    qemu_mutex_lock(&rfich_lock);
-    site = rfich_find(site_pc);
-    if (site) {
-        site->linked_misses++;
-    }
+    (void)site_pc;
     qatomic_inc(&rfich_linked_misses);
-    qemu_mutex_unlock(&rfich_lock);
 }
 
 void rfich_log_patch_attempt(void) { qatomic_inc(&rfich_patch_attempts); }
@@ -377,9 +367,6 @@ void rfich_log_dump(void)
     uint64_t observing = 0;
     uint64_t linked = 0;
     uint64_t disabled = 0;
-    uint64_t observations = 0;
-    uint64_t retranslations = 0;
-    uint64_t overflows = 0;
 
     rfich_init();
     qemu_mutex_lock(&rfich_lock);
@@ -392,20 +379,6 @@ void rfich_log_dump(void)
             observing += state == RFICH_SITE_OBSERVE;
             linked += state == RFICH_SITE_LINKED;
             disabled += state == RFICH_SITE_DISABLED;
-            observations += site->observations;
-            retranslations += site->retranslations;
-            overflows += site->candidate_overflows;
-            fprintf(stderr,
-                    "RFICH site=0x%" PRIx64 " state=%d samples=%u"
-                    " candidates=%u targets=%u coverage=%" PRIu64
-                    " observations=%" PRIu64 " retranslations=%" PRIu64
-                    " linked_attempts=%" PRIu64 " linked_misses=%" PRIu64
-                    " overflows=%" PRIu64 "\n",
-                    site->site_pc, state, site->sample_count,
-                    site->candidate_count, site->target_count, site->coverage,
-                    site->observations, site->retranslations,
-                    site->linked_attempts, site->linked_misses,
-                    site->candidate_overflows);
         }
     }
     qemu_mutex_unlock(&rfich_lock);
@@ -430,7 +403,7 @@ void rfich_log_dump(void)
                 qatomic_read(&rfich_linked_misses) ?
                 qatomic_read(&rfich_linked_attempts) -
                 qatomic_read(&rfich_linked_misses) : 0,
-            overflows);
+            qatomic_read(&rfich_candidate_overflows));
 
     fprintf(stderr,
             "RFICH lifecycle tb_inits=%" PRIu64
