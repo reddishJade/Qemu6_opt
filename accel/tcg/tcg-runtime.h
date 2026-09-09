@@ -32,7 +32,6 @@ DEF_HELPER_3(profile_indirect, void, tl, tl, i32)
 
 #if defined(CONFIG_RFICH)
 DEF_HELPER_3(hyperchain_observe, void, env, tl, tl)
-DEF_HELPER_3(hyperchain_observe_cached, void, env, cptr, tl)
 #endif
 #if defined(CONFIG_RFICH_LOG)
 DEF_HELPER_1(rfich_linked_attempt, void, tl)

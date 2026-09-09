@@ -2092,9 +2092,37 @@ static inline void emit_hyperchain_nop_slot(TCGContext *s)
     }
 }
 
+/* A linked target in the same TCG code-cache window needs only one branch
+ * instruction.  Keep the six-word slot for the far-target form, but publish
+ * a near branch at its first word so the five address-construction words are
+ * not executed on every successful prediction. */
+static inline bool hyperchain_make_near_branch(uintptr_t rx,
+                                               uintptr_t target,
+                                               tcg_insn_unit *branch)
+{
+    intptr_t delta = (intptr_t)target - (intptr_t)rx - 4;
+    intptr_t offset;
+
+    if (delta & 3) {
+        return false;
+    }
+    offset = delta >> 2;
+    if (offset != sextract64(offset, 0, 21)) {
+        return false;
+    }
+    *branch = OPC_BR | (offset & 0x1fffff);
+    return true;
+}
+
+static inline bool hyperchain_is_near_branch(uint32_t insn)
+{
+    return (insn & 0xfc000000u) == (OPC_BR & 0xfc000000u);
+}
+
 void patch_hyperchain_reset(TranslationBlock *tb, int index)
 {
     uintptr_t rx, rw;
+    uint32_t first;
 
     if (index < 0 || index >= INDIRECT_HYPER_MAX_TARGETS ||
         !tb->hyperchain_patch_offset[index]) {
@@ -2108,17 +2136,27 @@ void patch_hyperchain_reset(TranslationBlock *tb, int index)
 
     rx = (uintptr_t)tb->tc.ptr + tb->hyperchain_patch_offset[index];
     rw = rx - tcg_splitwx_diff;
-    /* Unpublish the JMP instruction first.  Once every CPU sees that NOP,
-     * the address-construction prefix can be removed without exposing a jump
-     * through a partially reset temporary register.  Naturally aligned
-     * 32-bit instruction stores avoid assuming 64-bit slot alignment. */
-    qatomic_set((uint32_t *)(rw + 4 * (HYPERCHAIN_SLOT_SIZE - 1)), OPC_NOP);
-    flush_idcache_range(rx + 4 * (HYPERCHAIN_SLOT_SIZE - 1),
-                        rw + 4 * (HYPERCHAIN_SLOT_SIZE - 1), 4);
-    for (int i = 0; i < HYPERCHAIN_SLOT_SIZE - 1; i++) {
-        qatomic_set((uint32_t *)(rw + i * 4), OPC_NOP);
+    first = qatomic_read((uint32_t *)rw);
+    if (hyperchain_is_near_branch(first)) {
+        /* A near branch is published at slot entry, so unpublish it first. */
+        qatomic_set((uint32_t *)rw, OPC_NOP);
+        flush_idcache_range(rx, rw, 4);
+        for (int i = 1; i < HYPERCHAIN_SLOT_SIZE; i++) {
+            qatomic_set((uint32_t *)(rw + i * 4), OPC_NOP);
+        }
+        flush_idcache_range(rx + 4, rw + 4,
+                            4 * (HYPERCHAIN_SLOT_SIZE - 1));
+    } else {
+        /* The far form publishes its JMP as the final word. */
+        qatomic_set((uint32_t *)(rw + 4 * (HYPERCHAIN_SLOT_SIZE - 1)),
+                    OPC_NOP);
+        flush_idcache_range(rx + 4 * (HYPERCHAIN_SLOT_SIZE - 1),
+                            rw + 4 * (HYPERCHAIN_SLOT_SIZE - 1), 4);
+        for (int i = 0; i < HYPERCHAIN_SLOT_SIZE - 1; i++) {
+            qatomic_set((uint32_t *)(rw + i * 4), OPC_NOP);
+        }
+        flush_idcache_range(rx, rw, 4 * (HYPERCHAIN_SLOT_SIZE - 1));
     }
-    flush_idcache_range(rx, rw, 4 * (HYPERCHAIN_SLOT_SIZE - 1));
 #if defined(CONFIG_RFICH_LOG)
     rfich_log_patch_reset();
 #endif
@@ -2136,6 +2174,8 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
     uintptr_t target;
     tcg_target_long l0, l1, l2;
     tcg_insn_unit insn[HYPERCHAIN_SLOT_SIZE];
+    tcg_insn_unit near_branch;
+    bool use_near_branch;
     TCGReg rd = TCG_REG_TMP;
 
 #if defined(CONFIG_RFICH_LOG)
@@ -2196,6 +2236,7 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
     }
 
     target = (uintptr_t)target_tb->tc.ptr;
+    use_near_branch = hyperchain_make_near_branch(rx, target, &near_branch);
     l0 = (int16_t)target;
     p = (target - l0) >> 16;
     l1 = (int16_t)p;
@@ -2226,6 +2267,32 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
         target_tb->hyperchain_jmp_list_head;
     target_tb->hyperchain_jmp_list_head = (uintptr_t)tb | index;
 
+    if (use_near_branch) {
+        /* Keep the slot size and miss skip distance unchanged.  Only the
+         * first word is live on a hit; publish it last as the branch gate. */
+        for (int i = 1; i < HYPERCHAIN_SLOT_SIZE; i++) {
+            qatomic_set((uint32_t *)(rw + i * 4), OPC_NOP);
+        }
+        flush_idcache_range(rx + 4, rw + 4,
+                            4 * (HYPERCHAIN_SLOT_SIZE - 1));
+        qatomic_set((uint32_t *)rw, near_branch);
+        flush_idcache_range(rx, rw, 4);
+#if defined(CONFIG_RFICH_LOG)
+        rfich_log_patch_success();
+        rfich_log_patch_short();
+#endif
+#if defined(CONFIG_RFICH_DEBUG)
+        fprintf(stderr,
+                "RFICH-DEBUG patch site=0x" TARGET_FMT_lx
+                " index=%d target=0x" TARGET_FMT_lx
+                " host=%p mode=near first=0x%08x\n",
+                tb->hyperchain_site_pc, index, target_tb->pc,
+                target_tb->tc.ptr, qatomic_read((uint32_t *)rx));
+#endif
+        qemu_spin_unlock(&target_tb->jmp_lock);
+        return;
+    }
+
     /* Publish every address-construction instruction before atomically
      * installing the final JMP.  Reset uses the exact inverse order. */
     for (int i = 0; i < HYPERCHAIN_SLOT_SIZE - 1; i++) {
@@ -2244,7 +2311,8 @@ void patch_hyperchain(TranslationBlock *tb, TranslationBlock *target_tb,
 #if defined(CONFIG_RFICH_DEBUG)
     fprintf(stderr,
             "RFICH-DEBUG patch site=0x" TARGET_FMT_lx
-            " index=%d target=0x" TARGET_FMT_lx " host=%p\n",
+            " index=%d target=0x" TARGET_FMT_lx
+            " host=%p mode=absolute\n",
             tb->hyperchain_site_pc, index, target_tb->pc, target_tb->tc.ptr);
 #endif
     qemu_spin_unlock(&target_tb->jmp_lock);

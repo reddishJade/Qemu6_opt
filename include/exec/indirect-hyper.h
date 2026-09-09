@@ -19,21 +19,16 @@ typedef enum IndirectHyperPlan {
 #if defined(CONFIG_RFICH)
 IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
                                                target_ulong targets[],
-                                               unsigned *count,
-                                               uintptr_t *observe_site);
+                                               unsigned *count);
 void indirect_hyperchain_record(struct CPUState *cpu, uint64_t site_pc,
                                 target_ulong target);
-void indirect_hyperchain_record_cached(struct CPUState *cpu, void *site,
-                                       target_ulong target);
 #else
 static inline IndirectHyperPlan
 indirect_hyperchain_get_plan(uint64_t site_pc,
-                             target_ulong targets[], unsigned *count,
-                             uintptr_t *observe_site)
+                             target_ulong targets[], unsigned *count)
 {
     (void)site_pc;
     (void)targets;
-    (void)observe_site;
     *count = 0;
     return INDIRECT_HYPER_DISABLED;
 }
@@ -44,15 +39,6 @@ static inline void indirect_hyperchain_record(struct CPUState *cpu,
 {
     (void)cpu;
     (void)site_pc;
-    (void)target;
-}
-
-static inline void indirect_hyperchain_record_cached(struct CPUState *cpu,
-                                                     void *site,
-                                                     target_ulong target)
-{
-    (void)cpu;
-    (void)site;
     (void)target;
 }
 #endif
@@ -87,6 +73,7 @@ void rfich_log_linked_attempt(uint64_t site_pc);
 void rfich_log_linked_miss(uint64_t site_pc);
 void rfich_log_patch_attempt(void);
 void rfich_log_patch_success(void);
+void rfich_log_patch_short(void);
 void rfich_log_patch_skip(void);
 void rfich_log_patch_reset(void);
 #else
@@ -100,6 +87,7 @@ static inline void rfich_log_linked_miss(uint64_t site_pc)
 }
 static inline void rfich_log_patch_attempt(void) {}
 static inline void rfich_log_patch_success(void) {}
+static inline void rfich_log_patch_short(void) {}
 static inline void rfich_log_patch_skip(void) {}
 static inline void rfich_log_patch_reset(void) {}
 #endif

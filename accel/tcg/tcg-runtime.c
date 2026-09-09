@@ -219,12 +219,6 @@ void HELPER(hyperchain_observe)(CPUArchState *env, target_ulong site_pc,
     indirect_hyperchain_record(env_cpu(env), site_pc, target);
 }
 
-void HELPER(hyperchain_observe_cached)(CPUArchState *env, void *site,
-                                       target_ulong target)
-{
-    indirect_hyperchain_record_cached(env_cpu(env), site, target);
-}
-
 #endif
 #if defined(CONFIG_RFICH_LOG)
 void HELPER(rfich_linked_attempt)(target_ulong site_pc)
