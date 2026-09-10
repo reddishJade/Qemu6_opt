@@ -3374,23 +3374,24 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg args[TCG_MAX_O
 
             tcg_debug_assert(count <= INDIRECT_HYPER_MAX_TARGETS);
             for (unsigned i = 0; i < count; i++) {
-                if (have_previous) {
+                if (!have_previous) {
+                    tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_TMP3, targets[i]);
+                    tcg_out_insn_simpleReg(s, OPC_SUBL, TCG_REG_TMP2,
+                                           TCG_REG_TMP3, a0);
+                    have_previous = true;
+                } else {
                     int64_t delta = (int64_t)targets[i] -
                                     (int64_t)previous_target;
 
                     if (delta == (int16_t)delta) {
-                        tcg_out_insn_ldst(s, OPC_LDI, TCG_REG_TMP3,
-                                          TCG_REG_TMP3, (int16_t)delta);
+                        tcg_out_insn_ldst(s, OPC_LDI, TCG_REG_TMP2,
+                                          TCG_REG_TMP2, (int16_t)delta);
                     } else {
-                        tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_TMP3,
-                                     targets[i]);
+                        tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_TMP3, delta);
+                        tcg_out_insn_simpleReg(s, OPC_ADDL, TCG_REG_TMP2,
+                                               TCG_REG_TMP2, TCG_REG_TMP3);
                     }
-                } else {
-                    tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_TMP3, targets[i]);
-                    have_previous = true;
                 }
-                tcg_out_insn_simpleReg(s, OPC_SUBL, TCG_REG_TMP2,
-                                       TCG_REG_TMP3, a0);
                 tcg_out_insn_br(s, OPC_BNE, TCG_REG_TMP2,
                                 HYPERCHAIN_SLOT_SIZE);
                 s->hyperchain_patch_offset[i] = tcg_current_code_size(s);
