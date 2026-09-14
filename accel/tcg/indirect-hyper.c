@@ -11,25 +11,8 @@
 #include "exec/indirect-hyper.h"
 #include "qemu/thread.h"
 
-#ifndef RFICH_BUCKETS
 #define RFICH_BUCKETS 4096
-#endif
-#ifndef RFICH_LEARN_SAMPLES
 #define RFICH_LEARN_SAMPLES 32
-#endif
-#ifndef RFICH_CANDIDATE_CAPACITY
-#define RFICH_CANDIDATE_CAPACITY 4
-#endif
-#ifndef RFICH_ACTIVE_TARGETS
-#define RFICH_ACTIVE_TARGETS INDIRECT_HYPER_MAX_TARGETS
-#endif
-#ifndef RFICH_MIN_COVERAGE
-#define RFICH_MIN_COVERAGE 90
-#endif
-
-#if RFICH_ACTIVE_TARGETS > INDIRECT_HYPER_MAX_TARGETS
-#error "RFICH_ACTIVE_TARGETS exceeds INDIRECT_HYPER_MAX_TARGETS"
-#endif
 
 enum {
     RFICH_SITE_OBSERVE,
@@ -37,26 +20,16 @@ enum {
     RFICH_SITE_DISABLED,
 };
 
-typedef struct RFICHTarget {
-    target_ulong pc;
-    unsigned count;
-} RFICHTarget;
-
 typedef struct RFICHSite RFICHSite;
 struct RFICHSite {
     uint64_t site_pc;
     RFICHSite *next;
 
-    RFICHTarget candidates[RFICH_CANDIDATE_CAPACITY];
-    unsigned candidate_count;
-    unsigned sample_count;
-
-    unsigned target_count;
+    target_ulong targets[INDIRECT_HYPER_MAX_TARGETS];
+    uint8_t counts[INDIRECT_HYPER_MAX_TARGETS];
+    uint8_t candidate_count;
+    uint8_t sample_count;
     int state;
-
-#if defined(CONFIG_RFICH_DEBUG)
-    uint64_t coverage;
-#endif
 };
 
 static RFICHSite *rfich_buckets[RFICH_BUCKETS];
@@ -87,7 +60,6 @@ static uint64_t rfich_translation_targets;
 static uint64_t rfich_tb_invalidations;
 static uint64_t rfich_invalidated_targets;
 static uint64_t rfich_published_targets[INDIRECT_HYPER_MAX_TARGETS + 1];
-static uint64_t rfich_published_disabled;
 static uint64_t rfich_prepare_calls;
 static uint64_t rfich_prepare_self;
 static uint64_t rfich_prepare_lookup_hits;
@@ -105,10 +77,9 @@ static unsigned rfich_hash(uint64_t site_pc)
 
 /* Sites are never freed.  Published bucket chains are safe to walk without
  * taking rfich_lock from translation. */
-static RFICHSite *rfich_find(uint64_t site_pc)
+static RFICHSite *rfich_find_in_bucket(uint64_t site_pc, unsigned bucket)
 {
-    RFICHSite *site = qatomic_rcu_read(
-        &rfich_buckets[rfich_hash(site_pc)]);
+    RFICHSite *site = qatomic_rcu_read(&rfich_buckets[bucket]);
 
     while (site) {
         if (site->site_pc == site_pc) {
@@ -119,9 +90,15 @@ static RFICHSite *rfich_find(uint64_t site_pc)
     return NULL;
 }
 
+static RFICHSite *rfich_find(uint64_t site_pc)
+{
+    return rfich_find_in_bucket(site_pc, rfich_hash(site_pc));
+}
+
 static RFICHSite *rfich_find_or_create(uint64_t site_pc)
 {
-    RFICHSite *site = rfich_find(site_pc);
+    unsigned bucket = rfich_hash(site_pc);
+    RFICHSite *site = rfich_find_in_bucket(site_pc, bucket);
 
     if (site) {
         return site;
@@ -130,8 +107,8 @@ static RFICHSite *rfich_find_or_create(uint64_t site_pc)
     site = g_new0(RFICHSite, 1);
     site->site_pc = site_pc;
     site->state = RFICH_SITE_OBSERVE;
-    site->next = qatomic_read(&rfich_buckets[rfich_hash(site_pc)]);
-    qatomic_rcu_set(&rfich_buckets[rfich_hash(site_pc)], site);
+    site->next = qatomic_read(&rfich_buckets[bucket]);
+    qatomic_rcu_set(&rfich_buckets[bucket], site);
     return site;
 }
 
@@ -167,7 +144,6 @@ static void rfich_atfork_child(void)
     rfich_translation_targets = 0;
     rfich_tb_invalidations = 0;
     rfich_invalidated_targets = 0;
-    rfich_published_disabled = 0;
     for (unsigned i = 0; i <= INDIRECT_HYPER_MAX_TARGETS; i++) {
         rfich_published_targets[i] = 0;
     }
@@ -196,65 +172,42 @@ static void rfich_init(void)
 static bool rfich_add_candidate(RFICHSite *site, target_ulong target)
 {
     for (unsigned i = 0; i < site->candidate_count; i++) {
-        if (site->candidates[i].pc == target) {
-            site->candidates[i].count++;
+        if (site->targets[i] == target) {
+            site->counts[i]++;
             return true;
         }
     }
-    if (site->candidate_count == RFICH_CANDIDATE_CAPACITY) {
+    if (site->candidate_count == INDIRECT_HYPER_MAX_TARGETS) {
         return false;
     }
-    site->candidates[site->candidate_count++] =
-        (RFICHTarget) { .pc = target, .count = 1 };
+    site->targets[site->candidate_count] = target;
+    site->counts[site->candidate_count++] = 1;
     return true;
 }
 
 static void rfich_publish_plan(RFICHSite *site)
 {
-    RFICHTarget *ranked = site->candidates;
-    unsigned active;
-    uint64_t covered = 0;
-
     for (unsigned i = 0; i < site->candidate_count; i++) {
         unsigned best = i;
 
         for (unsigned j = i + 1; j < site->candidate_count; j++) {
-            if (ranked[j].count > ranked[best].count) {
+            if (site->counts[j] > site->counts[best]) {
                 best = j;
             }
         }
         if (best != i) {
-            RFICHTarget tmp = ranked[i];
-            ranked[i] = ranked[best];
-            ranked[best] = tmp;
+            uint8_t count = site->counts[i];
+            target_ulong target = site->targets[i];
+
+            site->counts[i] = site->counts[best];
+            site->targets[i] = site->targets[best];
+            site->counts[best] = count;
+            site->targets[best] = target;
         }
     }
 
-    active = MIN(site->candidate_count, (unsigned)RFICH_ACTIVE_TARGETS);
-    for (unsigned i = 0; i < active; i++) {
-        covered += ranked[i].count;
-    }
-
-    if (!active || covered * 100 <
-                       (uint64_t)site->sample_count * RFICH_MIN_COVERAGE) {
 #if defined(CONFIG_RFICH_LOG)
-        qatomic_inc(&rfich_published_disabled);
-#endif
-        qatomic_store_release(&site->state, RFICH_SITE_DISABLED);
-#if defined(CONFIG_RFICH_DEBUG)
-        site->coverage = site->sample_count ?
-            covered * 100 / site->sample_count : 0;
-#endif
-        return;
-    }
-
-    /* The sorted candidates become the immutable plan after publication. */
-    site->target_count = active;
-#if defined(CONFIG_RFICH_LOG)
-    qatomic_inc(&rfich_published_targets[active]);
-#endif
-#if defined(CONFIG_RFICH_DEBUG)
-    site->coverage = covered * 100 / site->sample_count;
+    qatomic_inc(&rfich_published_targets[site->candidate_count]);
 #endif
     /* All plan fields are visible before the state becomes LINKED. */
     qatomic_store_release(&site->state, RFICH_SITE_LINKED);
@@ -293,10 +246,8 @@ IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
         return INDIRECT_HYPER_DISABLED;
     }
 
-    *count = site->target_count;
-    for (unsigned i = 0; i < *count; i++) {
-        targets[i] = site->candidates[i].pc;
-    }
+    *count = site->candidate_count;
+    memcpy(targets, site->targets, *count * sizeof(targets[0]));
 #if defined(CONFIG_RFICH_LOG)
     qatomic_inc(&rfich_plan_linked);
 #endif
@@ -348,10 +299,9 @@ void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
 #if defined(CONFIG_RFICH_DEBUG)
     fprintf(stderr,
             "RFICH-DEBUG observe site=0x%" PRIx64
-            " state=%d samples=%u candidates=%u targets=%u coverage=%" PRIu64
-            " retranslate=%d\n", site_pc, qatomic_read(&site->state),
-            site->sample_count, site->candidate_count, site->target_count,
-            site->coverage, retranslate);
+            " state=%d samples=%u candidates=%u retranslate=%d\n",
+            site_pc, qatomic_read(&site->state), site->sample_count,
+            site->candidate_count, retranslate);
 #endif
     qemu_mutex_unlock(&rfich_lock);
 
@@ -489,8 +439,7 @@ void rfich_log_dump(void)
             qatomic_read(&rfich_patch_short_jumps),
             qatomic_read(&rfich_patch_skips), qatomic_read(&rfich_patch_resets));
 
-    fprintf(stderr, "RFICH plans disabled=%" PRIu64 " targets=",
-            qatomic_read(&rfich_published_disabled));
+    fprintf(stderr, "RFICH plans targets=");
     for (unsigned i = 0; i <= INDIRECT_HYPER_MAX_TARGETS; i++) {
         fprintf(stderr, "%s%u:%" PRIu64, i ? "," : "", i,
                 qatomic_read(&rfich_published_targets[i]));
