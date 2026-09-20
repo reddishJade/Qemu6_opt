@@ -1,4 +1,5 @@
-/* Minimal RFICH policy: observe one bounded window, then freeze.
+/* RFICH capacity-four admission experiment: observe one bounded window,
+ * retain Top3 when they cover at least 90%, then freeze.
  *
  * The plan table is immutable after publication.  Translation reads it with
  * an RCU-style pointer walk and never takes the learning mutex.  A linked
@@ -13,6 +14,8 @@
 
 #define RFICH_BUCKETS 4096
 #define RFICH_LEARN_SAMPLES 32
+#define RFICH_CANDIDATE_CAPACITY 4
+#define RFICH_MIN_COVERAGE 90
 
 enum {
     RFICH_SITE_OBSERVE,
@@ -25,9 +28,10 @@ struct RFICHSite {
     uint64_t site_pc;
     RFICHSite *next;
 
-    target_ulong targets[INDIRECT_HYPER_MAX_TARGETS];
-    uint8_t counts[INDIRECT_HYPER_MAX_TARGETS];
+    target_ulong targets[RFICH_CANDIDATE_CAPACITY];
+    uint8_t counts[RFICH_CANDIDATE_CAPACITY];
     uint8_t candidate_count;
+    uint8_t target_count;
     uint8_t sample_count;
     int state;
 };
@@ -46,6 +50,9 @@ static uint64_t rfich_retranslations;
 static uint64_t rfich_linked_attempts;
 static uint64_t rfich_linked_misses;
 static uint64_t rfich_candidate_overflows;
+static uint64_t rfich_four_candidate_sites;
+static uint64_t rfich_four_candidate_linked;
+static uint64_t rfich_coverage_disabled;
 #endif
 
 #if defined(CONFIG_RFICH_LOG)
@@ -134,6 +141,9 @@ static void rfich_atfork_child(void)
     rfich_linked_attempts = 0;
     rfich_linked_misses = 0;
     rfich_candidate_overflows = 0;
+    rfich_four_candidate_sites = 0;
+    rfich_four_candidate_linked = 0;
+    rfich_coverage_disabled = 0;
     rfich_patch_attempts = 0;
     rfich_patch_successes = 0;
     rfich_patch_short_jumps = 0;
@@ -177,7 +187,7 @@ static bool rfich_add_candidate(RFICHSite *site, target_ulong target)
             return true;
         }
     }
-    if (site->candidate_count == INDIRECT_HYPER_MAX_TARGETS) {
+    if (site->candidate_count == RFICH_CANDIDATE_CAPACITY) {
         return false;
     }
     site->targets[site->candidate_count] = target;
@@ -187,6 +197,9 @@ static bool rfich_add_candidate(RFICHSite *site, target_ulong target)
 
 static void rfich_publish_plan(RFICHSite *site)
 {
+    unsigned active;
+    uint64_t covered = 0;
+
     for (unsigned i = 0; i < site->candidate_count; i++) {
         unsigned best = i;
 
@@ -206,8 +219,32 @@ static void rfich_publish_plan(RFICHSite *site)
         }
     }
 
+    active = MIN(site->candidate_count,
+                 (unsigned)INDIRECT_HYPER_MAX_TARGETS);
+    for (unsigned i = 0; i < active; i++) {
+        covered += site->counts[i];
+    }
+
 #if defined(CONFIG_RFICH_LOG)
-    qatomic_inc(&rfich_published_targets[site->candidate_count]);
+    if (site->candidate_count == RFICH_CANDIDATE_CAPACITY) {
+        qatomic_inc(&rfich_four_candidate_sites);
+    }
+#endif
+    if (!active || covered * 100 <
+                       (uint64_t)site->sample_count * RFICH_MIN_COVERAGE) {
+#if defined(CONFIG_RFICH_LOG)
+        qatomic_inc(&rfich_coverage_disabled);
+#endif
+        qatomic_store_release(&site->state, RFICH_SITE_DISABLED);
+        return;
+    }
+
+    site->target_count = active;
+#if defined(CONFIG_RFICH_LOG)
+    if (site->candidate_count == RFICH_CANDIDATE_CAPACITY) {
+        qatomic_inc(&rfich_four_candidate_linked);
+    }
+    qatomic_inc(&rfich_published_targets[active]);
 #endif
     /* All plan fields are visible before the state becomes LINKED. */
     qatomic_store_release(&site->state, RFICH_SITE_LINKED);
@@ -246,7 +283,7 @@ IndirectHyperPlan indirect_hyperchain_get_plan(uint64_t site_pc,
         return INDIRECT_HYPER_DISABLED;
     }
 
-    *count = site->candidate_count;
+    *count = site->target_count;
     memcpy(targets, site->targets, *count * sizeof(targets[0]));
 #if defined(CONFIG_RFICH_LOG)
     qatomic_inc(&rfich_plan_linked);
@@ -299,9 +336,10 @@ void indirect_hyperchain_record(CPUState *cpu, uint64_t site_pc,
 #if defined(CONFIG_RFICH_DEBUG)
     fprintf(stderr,
             "RFICH-DEBUG observe site=0x%" PRIx64
-            " state=%d samples=%u candidates=%u retranslate=%d\n",
+            " state=%d samples=%u candidates=%u targets=%u"
+            " retranslate=%d\n",
             site_pc, qatomic_read(&site->state), site->sample_count,
-            site->candidate_count, retranslate);
+            site->candidate_count, site->target_count, retranslate);
 #endif
     qemu_mutex_unlock(&rfich_lock);
 
@@ -418,6 +456,13 @@ void rfich_log_dump(void)
                 qatomic_read(&rfich_linked_attempts) -
                 qatomic_read(&rfich_linked_misses) : 0,
             qatomic_read(&rfich_candidate_overflows));
+
+    fprintf(stderr,
+            "RFICH admission four_candidate=%" PRIu64
+            " four_linked=%" PRIu64 " coverage_disabled=%" PRIu64 "\n",
+            qatomic_read(&rfich_four_candidate_sites),
+            qatomic_read(&rfich_four_candidate_linked),
+            qatomic_read(&rfich_coverage_disabled));
 
     fprintf(stderr,
             "RFICH lifecycle tb_inits=%" PRIu64
