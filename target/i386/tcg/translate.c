@@ -6331,12 +6331,6 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_const_tl(s->pc_start - s->cs_base), s->T0,
                 tcg_const_i32(INDIRECT_PROFILE_JMP));
 #endif
-#if defined(CONFIG_RFICH) && defined(__sw_64__)
-            if (gen_hyperchain(s, s->T0)) {
-                gen_helper_hyperchain_observe(
-                    cpu_env, tcg_const_tl(s->pc_start - s->cs_base), s->T0);
-            }
-#endif
             gen_jr(s, s->T0);
             break;
         case 5: /* ljmp Ev */

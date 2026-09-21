@@ -1,5 +1,5 @@
-/* RFICH capacity-four admission experiment: observe one bounded window,
- * retain Top3 when they cover at least 90%, then freeze.
+/* RFICH indirect-call policy: observe one bounded window, retain Top3 when
+ * they cover at least 90%, then freeze.
  *
  * The plan table is immutable after publication.  Translation reads it with
  * an RCU-style pointer walk and never takes the learning mutex.  A linked
